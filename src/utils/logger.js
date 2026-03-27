@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 const isDev = process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test';
+const isProduction = process.env.NODE_ENV === 'production';
 const logFile = path.join(process.cwd(), 'server_debug.log');
 const REDACTED_KEYS = new Set([
   'password',
@@ -48,7 +49,9 @@ const writeLog = (level, message, meta = {}) => {
     console.log(serialized.trim());
   }
 
-  fs.appendFileSync(logFile, serialized);
+  if (!isProduction) {
+    fs.appendFileSync(logFile, serialized);
+  }
 };
 
 export const logger = {

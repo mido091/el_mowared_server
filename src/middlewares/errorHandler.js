@@ -723,8 +723,7 @@ export const requestIdMiddleware = (req, res, next) => {
 export const errorHandler = (err, req, res, next) => {
   const normalized = normalizeUnknownError(err);
   const payload = createErrorPayload(normalized, req);
-
-  logger.error('Global error handler', {
+  const errorMeta = {
     requestId: req.requestId,
     method: req.method,
     url: req.originalUrl,
@@ -737,7 +736,18 @@ export const errorHandler = (err, req, res, next) => {
       fields: normalized.fields,
       details: normalized.details
     }
-  });
+  };
+
+  if (process.env.NODE_ENV === 'production') {
+    console.error(JSON.stringify({
+      level: 'error',
+      timestamp: new Date().toISOString(),
+      message: 'Global error handler',
+      meta: errorMeta
+    }));
+  } else {
+    logger.error('Global error handler', errorMeta);
+  }
 
   res.status(payload.status).json(payload);
 };
