@@ -10,7 +10,7 @@ import ContactMessageRepository from '../repositories/ContactMessageRepository.j
 import UserRepository from '../repositories/UserRepository.js';
 import pool from '../config/db.js';
 import { getIO, isUserOnline } from '../config/socket.js';
-import { sendSimpleEmail } from './EmailService.js';
+import { sendSimpleEmail } from './emailService.js';
 import { AppError } from '../middlewares/errorHandler.js';
 
 class ChatService {
