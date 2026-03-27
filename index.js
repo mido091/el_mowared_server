@@ -203,8 +203,9 @@ const startServer = async () => {
   }
 };
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   startServer();
 }
 
 export { app, pool, server };
+export default app;
