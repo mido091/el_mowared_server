@@ -1,0 +1,43 @@
+# Elmowared backend
+
+# Env
+.env
+.env.*
+
+# Dependencies / coverage
+node_modules/
+coverage/
+
+# Logs / diagnostics
+logs/
+*.log
+*.out
+*.err
+jest-output*
+test_output*
+test_failures*
+final_test*.log
+debug_*.log
+debug_*.json
+schema_*.log
+schema_out.txt
+server_debug.log
+certification_final*.log
+
+# Generated / temp files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

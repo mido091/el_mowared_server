@@ -1,0 +1,222 @@
+﻿
+> server@1.0.0 test
+> node init-db.js && node --experimental-vm-modules --experimental-specifier-resolution=node node_modules/jest/bin/jest.js --detectOpenHandles --forceExit
+
+[dotenv@17.3.1] injecting env (11) from .env -- tip: ≡ƒñû agentic secret storage: https://dotenvx.com/as2
+≡ƒöù Connecting to MySQL...
+ΓÜí Ensuring database "elmowared" exists...
+ΓÜí Building Ecosystem (Tables, Views, Constraints)...
+Γ£à System initialized successfully! Ready for launch.
+≡ƒÆí TO SYNC ROLES: Run "node init-db.js" in your terminal.
+  console.log
+    [dotenv@17.3.1] injecting env (11) from .env -- tip: ΓÜí∩╕Å secrets for agents: https://dotenvx.com/as2
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+  console.log
+    [dotenv@17.3.1] injecting env (0) from .env -- tip: ΓÜÖ∩╕Å  load multiple .env files with { path: ['.env.local', '.env'] }
+
+      at _log (node_modules/dotenv/lib/main.js:139:11)
+
+node.exe : (node:4752) ExperimentalWarning: VM Modules is 
+an experimental feature and might change at any time
+At line:1 char:1
++ & "C:\Program Files\nodejs/node.exe" 
+"C:\Users\MIDO\AppData\Roaming\n ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ((node:4752)  
+   Exp...nge at any time:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+(Use `node --trace-warnings ...` to show where the 
+warning was created)
+  console.log
+    MySQL Pool connected successfully.
+
+      at src/config/db.js:46:13
+
+  console.error
+    Γëí╞Æ├┤├╗ FULL ERROR TRACE: AppError: Permission Denied: You do not have the required role to perform this action.
+        at E:\web dev\mevn\el_mowared\server\src\middlewares\auth.js:72:19
+        at Layer.handleRequest (E:\web dev\mevn\el_mowared\server\node_modules\router\lib\layer.js:152:17)
+        at trimPrefix (E:\web dev\mevn\el_mowared\server\node_modules\router\index.js:342:13)
+        at E:\web dev\mevn\el_mowared\server\node_modules\router\index.js:297:9
+        at processParams (E:\web dev\mevn\el_mowared\server\node_modules\router\index.js:582:12)
+        at next (E:\web dev\mevn\el_mowared\server\node_modules\router\index.js:291:5)
+        at protect (E:\web dev\mevn\el_mowared\server\src\middlewares\auth.js:55:5)
+        at processTicksAndRejections (node:internal/process/task_queues:105:5) {
+      statusCode: 403,
+      isOperational: true
+    }
+
+    [0m [90m 30 |[39m   [90m// Platform-wide error logging boundary. [39m
+     [90m 31 |[39m   [36mif[39m (process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'test'[39m [33m||[39m process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'development'[39m) {
+    [31m[1m>[22m[39m[90m 32 |[39m     console[33m.[39merror([32m'Γëí╞Æ├┤├╗ FULL ERROR TRACE:'[39m[33m,[39m err)[33m;[39m
+     [90m    |[39m             [31m[1m^[22m[39m
+     [90m 33 |[39m   }
+     [90m 34 |[39m   err[33m.[39mstatus [33m=[39m err[33m.[39mstatus [33m||[39m [32m'error'[39m[33m;[39m
+     [90m 35 |[39m[0m
+
+      at errorHandler (src/middlewares/errorHandler.js:32:13)
+      at Layer.handleError (node_modules/router/lib/layer.js:116:17)
+      at trimPrefix (node_modules/router/index.js:340:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at node_modules/router/index.js:688:15
+      at next (node_modules/router/index.js:276:14)
+      at node_modules/router/index.js:688:15
+      at next (node_modules/router/index.js:276:14)
+      at src/middlewares/auth.js:72:14
+      at Layer.handleRequest (node_modules/router/lib/layer.js:152:17)
+      at trimPrefix (node_modules/router/index.js:342:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at protect (src/middlewares/auth.js:55:5)
+
+  console.error
+    Γëí╞Æ├┤├╗ FULL ERROR TRACE: Error: Cannot add or update a child row: a foreign key constraint fails ("elmowared"."vendor_category_junction", CONSTRAINT "vendor_category_junction_ibfk_2" FOREIGN KEY ("category_id") REFERENCES "categories" ("id") ON DELETE CASCADE)
+        at PromisePoolConnection.query (E:\web dev\mevn\el_mowared\server\node_modules\mysql2\lib\promise\connection.js:29:22)
+        at VendorRepository.addCategories (E:\web dev\mevn\el_mowared\server\src\repositories\VendorRepository.js:101:22)
+        at AuthService.register (E:\web dev\mevn\el_mowared\server\src\services\AuthService.js:59:34)
+        at processTicksAndRejections (node:internal/process/task_queues:105:5)
+        at registerMowared (E:\web dev\mevn\el_mowared\server\src\controllers\AuthController.js:106:22) {
+      code: 'ER_NO_REFERENCED_ROW_2',
+      errno: 1452,
+      sql: 'INSERT INTO vendor_category_junction (vendor_id, category_id) VALUES (2, 999999)',
+      sqlState: '23000',
+      sqlMessage: 'Cannot add or update a child row: a foreign key constraint fails ("elmowared"."vendor_category_junction", CONSTRAINT "vendor_category_junction_ibfk_2" FOREIGN KEY ("category_id") REFERENCES "categories" ("id") ON DELETE CASCADE)',
+      statusCode: 500
+    }
+
+    [0m [90m 30 |[39m   [90m// Platform-wide error logging boundary. [39m
+     [90m 31 |[39m   [36mif[39m (process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'test'[39m [33m||[39m process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'development'[39m) {
+    [31m[1m>[22m[39m[90m 32 |[39m     console[33m.[39merror([32m'Γëí╞Æ├┤├╗ FULL ERROR TRACE:'[39m[33m,[39m err)[33m;[39m
+     [90m    |[39m             [31m[1m^[22m[39m
+     [90m 33 |[39m   }
+     [90m 34 |[39m   err[33m.[39mstatus [33m=[39m err[33m.[39mstatus [33m||[39m [32m'error'[39m[33m;[39m
+     [90m 35 |[39m[0m
+
+      at errorHandler (src/middlewares/errorHandler.js:32:13)
+      at Layer.handleError (node_modules/router/lib/layer.js:116:17)
+      at trimPrefix (node_modules/router/index.js:340:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at node_modules/router/index.js:688:15
+      at next (node_modules/router/index.js:276:14)
+      at node_modules/router/index.js:688:15
+      at next (node_modules/router/index.js:276:14)
+      at next (node_modules/router/lib/route.js:132:14)
+      at registerMowared (src/controllers/AuthController.js:126:7)
+
+  console.error
+    Γëí╞Æ├┤├╗ FULL ERROR TRACE: AppError: You can only review vendors after order completion
+        at ReviewService.addReview (E:\web dev\mevn\el_mowared\server\src\services\ReviewService.js:32:13)
+        at processTicksAndRejections (node:internal/process/task_queues:105:5)
+        at addReview (E:\web dev\mevn\el_mowared\server\src\controllers\ReviewController.js:27:22) {
+      statusCode: 403,
+      isOperational: true
+    }
+
+    [0m [90m 30 |[39m   [90m// Platform-wide error logging boundary. [39m
+     [90m 31 |[39m   [36mif[39m (process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'test'[39m [33m||[39m process[33m.[39menv[33m.[39m[33mNODE_ENV[39m [33m===[39m [32m'development'[39m) {
+    [31m[1m>[22m[39m[90m 32 |[39m     console[33m.[39merror([32m'Γëí╞Æ├┤├╗ FULL ERROR TRACE:'[39m[33m,[39m err)[33m;[39m
+     [90m    |[39m             [31m[1m^[22m[39m
+     [90m 33 |[39m   }
+     [90m 34 |[39m   err[33m.[39mstatus [33m=[39m err[33m.[39mstatus [33m||[39m [32m'error'[39m[33m;[39m
+     [90m 35 |[39m[0m
+
+      at errorHandler (src/middlewares/errorHandler.js:32:13)
+      at Layer.handleError (node_modules/router/lib/layer.js:116:17)
+      at trimPrefix (node_modules/router/index.js:340:13)
+      at node_modules/router/index.js:297:9
+      at processParams (node_modules/router/index.js:582:12)
+      at next (node_modules/router/index.js:291:5)
+      at node_modules/router/index.js:688:15
+      at Immediate.next (node_modules/router/index.js:276:14)
+      at Immediate._onImmediate (node_modules/router/index.js:688:15)
+
+PASS tests/api_test_suite.test.js (136.337 s)
+  ≡ƒÜÇ Elmowared Full-Cycle Platform Verification
+    ≡ƒöÉ Authentication & Role Management
+      ΓêÜ Should register and login a regular User (2142 
+ms)
+      ΓêÜ Should register and login a Mowared (Vendor) 
+(3120 ms)
+      ΓêÜ Should register/login an Owner (Platform 
+Controller) (3106 ms)
+    ≡ƒææ Owner & Admin Privileges
+      ΓêÜ Should escalate a regular User to ADMIN role 
+(4010 ms)
+      ΓêÜ Should update global site settings (Site Name) 
+(1023 ms)
+    ≡ƒôª Mowared Workflow (Product Lifecycle)
+      ΓêÜ Should reject product creation if required 
+fields are missing (1008 ms)
+      ΓêÜ Should create a product with bilingual fields 
+(3859 ms)
+      ΓêÜ Should return correct pagination metadata (2054 
+ms)
+      ΓêÜ Should search products with partial Arabic 
+words (1844 ms)
+      ΓêÜ Should filter products by price and location 
+(1675 ms)
+      ΓêÜ Should perform a Soft Delete on the product 
+(4073 ms)
+    ≡ƒÆ╕ Escrow & Order Lifecycle
+      ΓêÜ Should setup product for purchase (3669 ms)
+      ΓêÜ Should add product to cart (1692 ms)
+      ΓêÜ Should process Checkout flow safely (7404 ms)
+      ΓêÜ Should handle Receipt Upload with Cloudinary 
+intercept (2080 ms)
+      ΓêÜ Should allow Admin to Verify payment and move 
+to PROCESSING (5675 ms)
+    ≡ƒû╝∩╕Å Performance & Integrity
+      ΓêÜ Should handle Profile Image update and old 
+asset deletion (2371 ms)
+    ≡ƒöÆ Security Guards
+      ΓêÜ Should block USER from accessing Owner routes 
+(405 ms)
+    ≡ƒ¢á∩╕Å Advanced QA & Technical Rigor
+      ΓêÜ Critical: Should rollback User creation if 
+Vendor profile fails (Transaction Integrity) (2942 ms)
+      ΓêÜ Should block unapproved Mowared from creating 
+products (3544 ms)
+      ΓêÜ Should persist Chat conversations and messages 
+correctly (5711 ms)
+    ≡ƒÅü Phase 7: Production Finalization Verification
+      ΓêÜ Should setup fresh environment for Phase 7 
+(7226 ms)
+      ΓêÜ Should verify Site Settings seed data (Public) 
+(690 ms)
+      ΓêÜ Should verify Cart persistence and CRUD (4189 
+ms)
+      ΓêÜ Should enforce 10% Escrow deposit during 
+checkout (9520 ms)
+      ΓêÜ Should block reviews for non-COMPLETED orders 
+(7173 ms)
+    ≡ƒ¢í∩╕Å Phase 8: B2B RFQ & Search Optimization
+      ΓêÜ Should filter products by JSON technical specs 
+(5150 ms)
+      ΓêÜ Should initialize an RFQ and trigger Chat RFQ 
+Card (7367 ms)
+      ΓêÜ Should allow Vendor to respond to RFQ with an 
+offer (3691 ms)
+    ≡ƒÄ¼ Phase 9: B2B Marketplace & Comparison Engine
+      ΓêÜ Should register a Marketer and verify role 
+(2532 ms)
+      ΓêÜ Should allow User to create a Category RFQ 
+(3146 ms)
+      ΓêÜ Should allow Vendor to submit an Offer (5484 ms)
+      ΓêÜ Should allow User to accept Offer and track 
+Marketer (4802 ms)
+      ΓêÜ Should compare multiple products (6259 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       34 passed, 34 total
+Snapshots:   0 total
+Time:        136.406 s
+Ran all test suites.

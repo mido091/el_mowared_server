@@ -1,0 +1,45 @@
+{
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
+    "cloudinary": "^1.41.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.3.1",
+    "file-type": "^21.3.2",
+    "helmet": "^8.1.0",
+    "joi": "^18.0.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.1",
+    "multer": "^2.0.2",
+    "multer-storage-cloudinary": "^4.0.0",
+    "mysql2": "^3.20.0",
+    "nodemailer": "^7.0.11",
+    "router": "^2.2.0",
+    "slugify": "^1.6.8",
+    "socket.io": "^4.8.3",
+    "validator": "^13.15.26",
+    "zod": "^4.3.6"
+  },
+  "type": "module",
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon --experimental-specifier-resolution=node index.js",
+    "start": "node index.js",
+    "db:init": "node init-db.js",
+    "test": "node --experimental-vm-modules --experimental-specifier-resolution=node node_modules/jest/bin/jest.js --detectOpenHandles --forceExit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "dbmate": "^2.29.3",
+    "jest": "^30.3.0",
+    "supertest": "^7.0.0"
+  }
+}
