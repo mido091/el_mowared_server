@@ -57,7 +57,7 @@ class VendorRepository {
         u.profile_image_url
       FROM vendor_stats vs
       JOIN vendor_profiles vp ON vs.vendor_id = vp.id
-      JOIN users u ON vp.user_id = u.id
+      JOIN users u ON vp.user_id = u.id AND u.deleted_at IS NULL
       WHERE vp.deleted_at IS NULL
     `;
 
@@ -82,19 +82,12 @@ class VendorRepository {
     return rows;
   }
 
-  /**
-   * Retrieves a full vendor profile by its ID, including assigned business categories.
-   * 
-   * @async
-   * @param {number} id - Vendor ID.
-   * @returns {Promise<Object|null>} Enriched vendor object with categories.
-   */
-  async findById(id) {
-    // 1. Fetch aggregate metrics and user details for the specific vendor.
-    const [rows] = await pool.execute(`
+  async findAllForAdmin(options = {}, connection = pool) {
+    const status = `${options.status || ''}`.trim().toUpperCase();
+    const params = {};
+    let sql = `
       SELECT
         vp.id,
-        vs.vendor_id,
         vp.user_id,
         vp.verification_status,
         vp.company_name_ar,
@@ -105,6 +98,77 @@ class VendorRepository {
         vp.logo,
         vp.logo_public_id,
         vp.created_at,
+        vp.updated_at,
+        vp.deleted_at,
+        COALESCE(vp.avg_rating, 0) AS avg_rating,
+        COALESCE(vp.review_count, 0) AS review_count,
+        COALESCE(vs.total_sales, 0) AS total_sales,
+        COALESCE(vs.total_orders, 0) AS total_orders,
+        COALESCE(vs.response_rate, 0) AS response_rate,
+        COALESCE(vs.is_verified, CASE WHEN vp.verification_status = 'APPROVED' THEN TRUE ELSE FALSE END) AS is_verified,
+        u.email,
+        u.phone,
+        u.is_active,
+        u.deleted_at AS user_deleted_at,
+        u.profile_image_url,
+        (
+          SELECT c.slug
+          FROM categories c
+          JOIN vendor_category_junction vcj ON c.id = vcj.category_id
+          WHERE vcj.vendor_id = vp.id
+          ORDER BY vcj.category_id ASC
+          LIMIT 1
+        ) AS category,
+        CASE
+          WHEN vp.deleted_at IS NOT NULL OR u.deleted_at IS NOT NULL THEN 'DELETED'
+          WHEN u.is_active = 0 THEN 'INACTIVE'
+          WHEN vp.verification_status = 'APPROVED' THEN 'APPROVED'
+          WHEN vp.verification_status = 'REJECTED' THEN 'REJECTED'
+          ELSE 'PENDING'
+        END AS record_state
+      FROM vendor_profiles vp
+      LEFT JOIN vendor_stats vs ON vp.id = vs.vendor_id
+      LEFT JOIN users u ON vp.user_id = u.id
+      WHERE 1 = 1
+    `;
+
+    if (status && status !== 'ALL') {
+      sql += ' AND vp.verification_status = :status';
+      params.status = status;
+    }
+
+    sql += ' ORDER BY vp.created_at DESC, vp.id DESC';
+    const [rows] = await connection.execute(sql, params);
+    return rows;
+  }
+
+  /**
+   * Retrieves a full vendor profile by its ID, including assigned business categories.
+   * 
+   * @async
+   * @param {number} id - Vendor ID.
+   * @returns {Promise<Object|null>} Enriched vendor object with categories.
+   */
+  async findById(id, options = {}) {
+    const { includeDeleted = false, connection = pool } = options;
+
+    // 1. Fetch aggregate metrics and user details for the specific vendor.
+    const [rows] = await connection.execute(`
+      SELECT
+        vp.id,
+        COALESCE(vs.vendor_id, vp.id) AS vendor_id,
+        vp.user_id,
+        vp.verification_status,
+        vp.company_name_ar,
+        vp.company_name_en,
+        vp.bio_ar,
+        vp.bio_en,
+        vp.location,
+        vp.logo,
+        vp.logo_public_id,
+        vp.created_at,
+        vp.deleted_at,
+        u.deleted_at AS user_deleted_at,
         COALESCE(vp.avg_rating, 0) AS avg_rating,
         COALESCE(vp.review_count, 0) AS review_count,
         COALESCE(vs.total_sales, 0) AS total_sales,
@@ -116,19 +180,22 @@ class VendorRepository {
         u.email,
         u.phone,
         u.profile_image_url
-      FROM vendor_stats vs
-      JOIN vendor_profiles vp ON vs.vendor_id = vp.id
-      JOIN users u ON vp.user_id = u.id
-      WHERE vs.vendor_id = :id
+      FROM vendor_profiles vp
+      LEFT JOIN vendor_stats vs ON vs.vendor_id = vp.id
+      LEFT JOIN users u ON vp.user_id = u.id
+      WHERE vp.id = :id
+        ${includeDeleted ? '' : 'AND vp.deleted_at IS NULL AND u.deleted_at IS NULL'}
+      LIMIT 1
     `, { id });
     const vendor = rows[0];
     if (vendor) {
       // 2. Multi-table Join: Retrieves categories linked to the vendor through the junction table.
-      const [categories] = await pool.execute(`
+      const [categories] = await connection.execute(`
         SELECT c.* 
         FROM categories c
         JOIN vendor_category_junction vcj ON c.id = vcj.category_id
         WHERE vcj.vendor_id = :id
+          AND c.deleted_at IS NULL
       `, { id });
       vendor.categories = categories;
     }
@@ -144,11 +211,20 @@ class VendorRepository {
    * @returns {Promise<Object>} Created vendor ID and owner association.
    */
   async create(data, connection = pool) {
-    const { userId, companyNameAr, companyNameEn, bioAr, bioEn, logo, logoPublicId } = data;
+    const {
+      userId,
+      companyNameAr,
+      companyNameEn,
+      bioAr,
+      bioEn,
+      location,
+      logo,
+      logoPublicId,
+    } = data;
     // Insert new profile with localization support and Cloudinary media references.
     const sql = `
-      INSERT INTO vendor_profiles (user_id, company_name_ar, company_name_en, bio_ar, bio_en, logo, logo_public_id, verification_status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW(), NOW())
+      INSERT INTO vendor_profiles (user_id, company_name_ar, company_name_en, bio_ar, bio_en, location, logo, logo_public_id, verification_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', NOW(), NOW())
     `;
     const [result] = await connection.execute(sql, [
       userId, 
@@ -156,6 +232,7 @@ class VendorRepository {
       companyNameEn, 
       bioAr || null, 
       bioEn || null, 
+      location || null,
       logo || null, 
       logoPublicId || null 
     ]);
@@ -237,6 +314,13 @@ class VendorRepository {
   async softDelete(id, connection = pool) {
     await connection.execute(
       'UPDATE vendor_profiles SET deleted_at = NOW() WHERE id = :id',
+      { id }
+    );
+  }
+
+  async hardDelete(id, connection = pool) {
+    await connection.execute(
+      'DELETE FROM vendor_profiles WHERE id = :id',
       { id }
     );
   }

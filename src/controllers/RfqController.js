@@ -24,6 +24,9 @@ class RfqController {
    * Universal standardized response wrapper.
    */
   _respond(res, statusCode, data, message = '') {
+    if (statusCode >= 200 && statusCode < 300) {
+      res.set('Cache-Control', 'no-store');
+    }
     res.status(statusCode).json({
       success: statusCode >= 200 && statusCode < 300,
       data,

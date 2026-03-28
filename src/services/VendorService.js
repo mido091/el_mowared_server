@@ -10,6 +10,8 @@ import DashboardMetricsService from './DashboardMetricsService.js';
 import MetricsCacheService from './MetricsCacheService.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import pool from '../config/db.js';
+import UploadService from './UploadService.js';
+import UserRepository from '../repositories/UserRepository.js';
 
 class VendorService {
   /**
@@ -65,6 +67,16 @@ class VendorService {
       if (!vendor) {
         throw new AppError('Vendor not found', 404);
       }
+
+      const [[vendorMedia]] = await connection.execute(
+        `
+        SELECT logo_public_id, verification_docs_public_id
+        FROM vendor_profiles
+        WHERE id = :vendorId
+        LIMIT 1
+        `,
+        { vendorId }
+      );
 
       // 1. Authorization Update: Modify verification flag in the profile.
       const sql = 'UPDATE vendor_profiles SET verification_status = :status, updated_at = NOW() WHERE id = :vendorId';
@@ -172,6 +184,85 @@ class VendorService {
       ...o,
       buyer: { full_name: `${o.first_name} ${o.last_name}`, email: o.buyer_email }
     }));
+  }
+
+  async deleteVendorCascade(vendorId, actorUserId = null) {
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      const vendor = await VendorRepository.findById(vendorId, {
+        includeDeleted: true,
+        connection,
+      });
+      if (!vendor) {
+        throw new AppError('Vendor not found', 404);
+      }
+
+      const [[vendorMedia]] = await connection.execute(
+        `
+        SELECT logo_public_id, verification_docs_public_id
+        FROM vendor_profiles
+        WHERE id = :vendorId
+        LIMIT 1
+        `,
+        { vendorId }
+      );
+
+      const [productImages] = await connection.execute(
+        `
+        SELECT pi.public_id
+        FROM product_images pi
+        JOIN products p ON p.id = pi.product_id
+        WHERE p.vendor_id = :vendorId
+        `,
+        { vendorId }
+      );
+
+      const [userRows] = await connection.execute(
+        'SELECT profile_image_public_id FROM users WHERE id = :userId LIMIT 1',
+        { userId: vendor.user_id }
+      );
+
+      const assetPublicIds = [
+        vendorMedia?.logo_public_id,
+        vendorMedia?.verification_docs_public_id,
+        ...productImages.map((row) => row.public_id),
+        userRows[0]?.profile_image_public_id
+      ].filter(Boolean);
+
+      await UserRepository.delete(vendor.user_id, connection);
+
+      if (actorUserId) {
+        await connection.execute(
+          'INSERT INTO admin_logs (admin_id, action, target_id, details) VALUES (:admin_id, :action, :target_id, :details)',
+          {
+            admin_id: actorUserId,
+            action: `${`${vendor.deleted_at || vendor.user_deleted_at ? 'PURGE' : 'DELETE'}`}_VENDOR`,
+            target_id: vendorId,
+            details: `${vendor.deleted_at || vendor.user_deleted_at ? 'Purged' : 'Deleted'} vendor ${vendor.company_name_en || vendor.company_name_ar || vendorId}`
+          }
+        );
+      }
+
+      await connection.commit();
+
+      await Promise.allSettled(assetPublicIds.map((publicId) => UploadService.deleteImage(publicId)));
+
+      MetricsCacheService.invalidate('public:vendors');
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:categories');
+
+      return {
+        vendorId: Number(vendorId),
+        userId: vendor.user_id
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 

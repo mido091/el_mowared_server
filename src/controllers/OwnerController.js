@@ -12,6 +12,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import AuthService from '../services/AuthService.js';
 import logger from '../utils/logger.js';
+import MetricsCacheService from '../services/MetricsCacheService.js';
 
 class OwnerController {
   /**
@@ -70,6 +71,10 @@ class OwnerController {
       }
 
       await connection.commit();
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      if (data.role === 'MOWARED') {
+        MetricsCacheService.invalidate('public:vendors');
+      }
 
       res.status(201).json({
         status: 'success',

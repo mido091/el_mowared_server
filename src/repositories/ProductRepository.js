@@ -136,9 +136,10 @@ class ProductRepository {
     `;
     let fromWhereClause = `
       FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
+      INNER JOIN categories c ON p.category_id = c.id AND c.deleted_at IS NULL
+      INNER JOIN vendor_profiles vpa ON p.vendor_id = vpa.id AND vpa.deleted_at IS NULL
+      INNER JOIN users vu ON vpa.user_id = vu.id AND vu.deleted_at IS NULL
       LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
-      LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id
       WHERE p.deleted_at IS NULL
     `;
     const params = {};
@@ -242,10 +243,11 @@ class ProductRepository {
              vs.company_name_ar as brand_ar, vs.company_name_en as brand_en,
              vp.logo as vendor_logo
       FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
+      INNER JOIN categories c ON p.category_id = c.id AND c.deleted_at IS NULL
+      INNER JOIN vendor_profiles vpa ON p.vendor_id = vpa.id AND vpa.deleted_at IS NULL
+      INNER JOIN users vu ON vpa.user_id = vu.id AND vu.deleted_at IS NULL
       LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
-      LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id
-      LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
+      LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id AND vp.deleted_at IS NULL
       WHERE p.id IN (?) AND p.deleted_at IS NULL AND ${statusSql.publicWhere}
     `;
     const [products] = await pool.query(sql, [ids]);
@@ -263,12 +265,16 @@ class ProductRepository {
       pool.query(`
         SELECT COUNT(*) AS total
         FROM products p
+        INNER JOIN categories c ON p.category_id = c.id AND c.deleted_at IS NULL
+        INNER JOIN vendor_profiles vp ON p.vendor_id = vp.id AND vp.deleted_at IS NULL
+        INNER JOIN users u ON vp.user_id = u.id AND u.deleted_at IS NULL
         WHERE p.deleted_at IS NULL
           AND ${statusSql.publicWhere}
       `),
       pool.query(`
         SELECT COUNT(*) AS total
         FROM vendor_profiles vp
+        INNER JOIN users u ON vp.user_id = u.id AND u.deleted_at IS NULL
         WHERE vp.deleted_at IS NULL
       `),
       pool.query(`
@@ -277,11 +283,12 @@ class ProductRepository {
         WHERE UPPER(status) = 'COMPLETED'
       `),
       pool.query(`
-        SELECT COUNT(DISTINCT TRIM(location)) AS total
-        FROM vendor_profiles
-        WHERE deleted_at IS NULL
-          AND location IS NOT NULL
-          AND TRIM(location) <> ''
+        SELECT COUNT(DISTINCT TRIM(vp.location)) AS total
+        FROM vendor_profiles vp
+        INNER JOIN users u ON vp.user_id = u.id AND u.deleted_at IS NULL
+        WHERE vp.deleted_at IS NULL
+          AND vp.location IS NOT NULL
+          AND TRIM(vp.location) <> ''
       `),
       pool.query(`
         SELECT COUNT(*) AS total
@@ -304,30 +311,57 @@ class ProductRepository {
    * Retrieves a single product by ID including image gallery.
    * Joins vendor info for the marketplace product page.
    */
-  async findById(id) {
+  async findById(id, options = {}) {
+    const { includeDeleted = false } = options;
     const statusSql = await this._buildStatusSql();
     const hasViewLogs = await this._supportsProductViewLogs();
+    const categoryJoin = includeDeleted
+      ? 'LEFT JOIN categories c ON p.category_id = c.id'
+      : 'INNER JOIN categories c ON p.category_id = c.id AND c.deleted_at IS NULL';
+    const vendorJoin = includeDeleted
+      ? 'LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id'
+      : 'INNER JOIN vendor_profiles vpa ON p.vendor_id = vpa.id AND vpa.deleted_at IS NULL';
+    const userJoin = includeDeleted
+      ? 'LEFT JOIN users vu ON vpa.user_id = vu.id'
+      : 'INNER JOIN users vu ON vpa.user_id = vu.id AND vu.deleted_at IS NULL';
+    const vendorProfileJoin = includeDeleted
+      ? 'LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id'
+      : 'LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id AND vp.deleted_at IS NULL';
     const sql = `
       SELECT p.*,
              ${statusSql.statusSelect},
              ${statusSql.visibilitySelect},
+             CASE
+               WHEN p.deleted_at IS NOT NULL THEN 'DELETED'
+               WHEN COALESCE(p.lifecycle_status, p.status) = 'REJECTED' THEN 'REJECTED'
+               WHEN COALESCE(p.lifecycle_status, p.status) = 'APPROVED' THEN 'APPROVED'
+               ELSE 'PENDING'
+             END AS record_state,
              vs.company_name_ar, vs.company_name_en,
              COALESCE(vpa.avg_rating, vs.avg_rating, 0) as avg_rating,
              COALESCE(vpa.review_count, vs.review_count, 0) as review_count,
              vs.response_rate, vs.is_verified, vs.vendor_id as vs_vendor_id,
-             u.id as vendor_user_id,
+             vu.id as vendor_user_id,
              vp.logo as vendor_logo,
              vp.created_at as vendor_created_at,
-             (SELECT COUNT(*) FROM products vendor_products WHERE vendor_products.vendor_id = p.vendor_id AND vendor_products.deleted_at IS NULL AND ${statusSql.publicWhere.replaceAll('p.', 'vendor_products.')}) as vendor_total_products,
+             (
+               SELECT COUNT(*)
+               FROM products vendor_products
+               INNER JOIN categories vc ON vendor_products.category_id = vc.id AND vc.deleted_at IS NULL
+               WHERE vendor_products.vendor_id = p.vendor_id
+                 AND vendor_products.deleted_at IS NULL
+                 AND ${statusSql.publicWhere.replaceAll('p.', 'vendor_products.')}
+             ) as vendor_total_products,
              ${hasViewLogs ? '(SELECT COUNT(*) FROM product_view_logs pvl WHERE pvl.product_id = p.id)' : '0'} as views_count,
              (SELECT COUNT(*) FROM conversations conv WHERE conv.product_id = p.id) as inquiries_count,
              (SELECT image_url FROM product_images WHERE product_id = p.id AND is_main = 1 LIMIT 1) as main_image
       FROM products p
+      ${categoryJoin}
+      ${vendorJoin}
+      ${userJoin}
       LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
-      LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id
-      LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
-      LEFT JOIN users u ON vp.user_id = u.id
-      WHERE p.id = :id AND p.deleted_at IS NULL
+      ${vendorProfileJoin}
+      WHERE p.id = :id ${includeDeleted ? '' : 'AND p.deleted_at IS NULL'}
     `;
     const [rows] = await pool.execute(sql, { id });
     const product = rows[0];
@@ -362,8 +396,10 @@ class ProductRepository {
              COALESCE(vpa.avg_rating, vs.avg_rating, 0) as avg_rating,
              (SELECT image_url FROM product_images WHERE product_id = p.id AND is_main = 1 LIMIT 1) as main_image
       FROM products p
+      INNER JOIN categories c ON p.category_id = c.id AND c.deleted_at IS NULL
+      INNER JOIN vendor_profiles vpa ON p.vendor_id = vpa.id AND vpa.deleted_at IS NULL
+      INNER JOIN users vu ON vpa.user_id = vu.id AND vu.deleted_at IS NULL
       LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
-      LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id
       WHERE p.category_id = :categoryId 
         AND p.id != :excludeId 
         AND p.deleted_at IS NULL
@@ -392,6 +428,13 @@ class ProductRepository {
              ${hasRejectionReason ? 'p.rejection_reason' : 'NULL as rejection_reason'},
              ${hasEdited ? 'p.is_edited' : '0 as is_edited'}, p.created_at, p.updated_at,
              ${hasLastReviewedAt ? 'p.last_reviewed_at' : 'NULL as last_reviewed_at'},
+             p.deleted_at,
+             CASE
+               WHEN p.deleted_at IS NOT NULL THEN 'DELETED'
+               WHEN COALESCE(p.lifecycle_status, p.status) = 'REJECTED' THEN 'REJECTED'
+               WHEN COALESCE(p.lifecycle_status, p.status) = 'APPROVED' THEN 'APPROVED'
+               ELSE 'PENDING'
+             END AS record_state,
              ${hasViewLogs ? '(SELECT COUNT(*) FROM product_view_logs pvl WHERE pvl.product_id = p.id)' : '0'} as views_count,
              (SELECT COUNT(*) FROM conversations conv WHERE conv.product_id = p.id) as inquiries_count,
              vs.company_name_ar, vs.company_name_en,
@@ -400,10 +443,12 @@ class ProductRepository {
              vp.logo as vendor_logo,
              (SELECT image_url FROM product_images WHERE product_id = p.id AND is_main = 1 LIMIT 1) as main_image
       FROM products p
-      LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
+      LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN vendor_profiles vpa ON p.vendor_id = vpa.id
+      LEFT JOIN users vu ON vpa.user_id = vu.id
+      LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
       LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
-      WHERE p.deleted_at IS NULL
+      WHERE 1 = 1
     `;
     const params = {};
     if (lifecycleStatus && lifecycleStatus !== 'ALL') {
@@ -416,7 +461,10 @@ class ProductRepository {
     const [countResult] = await pool.execute(
       `SELECT COUNT(*) as total
        FROM products p
-       WHERE p.deleted_at IS NULL${lifecycleStatus && lifecycleStatus !== 'ALL' ? ` AND ${statusSql.filterWhere}` : ''}`,
+       LEFT JOIN categories c ON p.category_id = c.id
+       LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
+       LEFT JOIN users u ON vp.user_id = u.id
+       WHERE 1 = 1${lifecycleStatus && lifecycleStatus !== 'ALL' ? ` AND ${statusSql.filterWhere}` : ''}`,
       lifecycleStatus && lifecycleStatus !== 'ALL' ? { lifecycleStatus } : {}
     );
     return { products: rows, total: countResult[0]?.total || 0 };
@@ -671,6 +719,15 @@ class ProductRepository {
     const [images] = await connection.execute('SELECT public_id FROM product_images WHERE product_id = :productId', { productId });
     await connection.execute('DELETE FROM product_images WHERE product_id = :productId', { productId });
     return images;
+  }
+
+  async purgeSoftDeletedBySlug(slug, connection = pool) {
+    if (!slug) return 0;
+    const [result] = await connection.execute(
+      'DELETE FROM products WHERE slug = :slug AND deleted_at IS NOT NULL',
+      { slug }
+    );
+    return result.affectedRows || 0;
   }
 
   async findPotentialDuplicate({ vendorId, categoryId, name_ar, name_en, excludeId = null }, connection = pool) {

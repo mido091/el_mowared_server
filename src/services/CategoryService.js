@@ -5,6 +5,10 @@
  */
 
 import CategoryRepository from '../repositories/CategoryRepository.js';
+import MetricsCacheService from './MetricsCacheService.js';
+import pool from '../config/db.js';
+import { AppError } from '../middlewares/errorHandler.js';
+import UploadService from './UploadService.js';
 
 class CategoryService {
   /**
@@ -46,7 +50,97 @@ class CategoryService {
   }
 
   async createCategory(data) {
-    return CategoryRepository.create(data);
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+      await CategoryRepository.purgeSoftDeletedBySlug(data.slug, connection);
+      const category = await CategoryRepository.create(data, connection);
+      await connection.commit();
+      MetricsCacheService.invalidate('public:categories');
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
+      return category;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async updateCategory(id, data) {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const existing = await CategoryRepository.findById(id, connection);
+      if (!existing) {
+        throw new AppError('Category not found', 404);
+      }
+
+      if (data.slug && data.slug !== existing.slug) {
+        await CategoryRepository.purgeSoftDeletedBySlug(data.slug, connection);
+      }
+
+      const category = await CategoryRepository.update(id, data, connection);
+      await connection.commit();
+      MetricsCacheService.invalidate('public:categories');
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
+      return category;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async deleteCategoryCascade(id) {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const existing = await CategoryRepository.findById(id, connection, true);
+      if (!existing) {
+        throw new AppError('Category not found', 404);
+      }
+
+      const idsToDelete = await CategoryRepository.findDescendantIds(id, connection, true);
+      const [productImageRows] = await connection.query(
+        `
+        SELECT pi.public_id
+        FROM product_images pi
+        JOIN products p ON p.id = pi.product_id
+        WHERE p.category_id IN (?)
+        `,
+        [idsToDelete]
+      );
+      const assetPublicIds = productImageRows
+        .map((row) => row.public_id)
+        .filter(Boolean);
+      const deletedCount = await CategoryRepository.hardDeleteByIds(idsToDelete, connection);
+
+      await connection.commit();
+      await Promise.allSettled(assetPublicIds.map((publicId) => UploadService.deleteImage(publicId)));
+      MetricsCacheService.invalidate('public:categories');
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
+
+      return {
+        id: Number(id),
+        deletedCategoryIds: idsToDelete,
+        deletedCount
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 

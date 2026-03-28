@@ -6,10 +6,11 @@ import AdminDashboardController from '../controllers/AdminDashboardController.js
 import AdminReviewController from '../controllers/AdminReviewController.js';
 import ProductController from '../controllers/ProductController.js';
 import ChatController from '../controllers/ChatController.js';
+import VendorController from '../controllers/VendorController.js';
 import { protect, authorize } from '../middlewares/auth.js';
 import { upload, verifyUploadedImages, uploadErrorHandler } from '../utils/upload.js';
 import { validate } from '../middlewares/validate.js';
-import { reviewSchemas, productSchemas } from '../validators/schemas.js';
+import { reviewSchemas, productSchemas, vendorSchemas } from '../validators/schemas.js';
 import { uploadLimiter } from '../middlewares/rateLimiters.js';
 
 const router = express.Router();
@@ -23,6 +24,7 @@ router.get('/vendors', authorize('OWNER', 'ADMIN'), AdminDashboardController.get
 router.get('/payments', authorize('OWNER'), AdminDashboardController.getPayments);
 router.put('/vendors/:id/verify', authorize('OWNER', 'ADMIN'), AdminDashboardController.verifyVendorDirect);
 router.put('/vendors/:id/reject', authorize('OWNER', 'ADMIN'), AdminDashboardController.rejectVendorDirect);
+router.delete('/vendors/:id', authorize('OWNER', 'ADMIN'), validate({ params: vendorSchemas.idParam }), VendorController.deleteVendorAdmin);
 router.get('/alerts', authorize('OWNER', 'ADMIN'), AdminDashboardController.getAlerts);
 router.get('/support-conversations', authorize('OWNER'), ChatController.getOwnerSupportConversations);
 router.get('/support-conversations/:id/messages', authorize('OWNER'), ChatController.getOwnerSupportConversationMessages);

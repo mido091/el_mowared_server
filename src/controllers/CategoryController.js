@@ -5,6 +5,7 @@
  */
 
 import CategoryRepository from '../repositories/CategoryRepository.js';
+import CategoryService from '../services/CategoryService.js';
 import { z } from 'zod';
 import { AppError } from '../middlewares/errorHandler.js';
 import MetricsCacheService from '../services/MetricsCacheService.js';
@@ -27,13 +28,25 @@ class CategoryController {
    */
   async getAll(req, res, next) {
     try {
-      const cacheKey = `public:categories:${req.locale || 'default'}`;
-      const categories = await MetricsCacheService.withCache(
-        cacheKey,
-        () => CategoryRepository.findAll(),
-        10 * 60 * 1000
-      );
-      res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+      const freshRequested = ['1', 'true', 'yes'].includes(String(req.query.fresh || '').toLowerCase());
+      const adminScope = ['admin', 'owner', 'dashboard'].includes(String(req.query.scope || '').toLowerCase());
+
+      let categories;
+
+      if (freshRequested || adminScope) {
+        categories = adminScope
+          ? await CategoryRepository.findAllForAdmin()
+          : await CategoryRepository.findAll();
+      } else {
+        const cacheKey = `public:categories:${req.locale || 'default'}`;
+        categories = await MetricsCacheService.withCache(
+          cacheKey,
+          () => CategoryRepository.findAll(),
+          10 * 60 * 1000
+        );
+      }
+      res.set('Cache-Control', 'no-store');
+
       res.status(200).json({
         status: 'success',
         data: res.formatLocalization(categories)
@@ -55,11 +68,10 @@ class CategoryController {
       // SEO Logic: Extract human-readable slug from English name.
       const slug = slugify(validatedData.nameEn, { lower: true, strict: true });
 
-      const category = await CategoryRepository.create({
+      const category = await CategoryService.createCategory({
         ...validatedData,
         slug
       });
-      MetricsCacheService.invalidate('public:categories');
 
       res.status(201).json({
         status: 'success',
@@ -80,11 +92,10 @@ class CategoryController {
       const validatedData = categorySchema.parse(req.body);
       const slug = slugify(validatedData.nameEn, { lower: true, strict: true });
 
-      const category = await CategoryRepository.update(req.params.id, {
+      const category = await CategoryService.updateCategory(req.params.id, {
         ...validatedData,
         slug
       });
-      MetricsCacheService.invalidate('public:categories');
 
       if (!category) throw new AppError('Category not found', 404);
 
@@ -104,11 +115,10 @@ class CategoryController {
    */
   async delete(req, res, next) {
     try {
-      await CategoryRepository.softDelete(req.params.id);
-      MetricsCacheService.invalidate('public:categories');
-      res.status(204).json({
+      const result = await CategoryService.deleteCategoryCascade(req.params.id);
+      res.status(200).json({
         status: 'success',
-        data: null
+        data: result
       });
     } catch (error) {
       next(error);

@@ -2,6 +2,7 @@ import AdminDashboardService from '../services/AdminDashboardService.js';
 import OrderService from '../services/OrderService.js';
 import pool from '../config/db.js';
 import UserRepository from '../repositories/UserRepository.js';
+import VendorRepository from '../repositories/VendorRepository.js';
 
 class AdminDashboardController {
   /**
@@ -11,7 +12,8 @@ class AdminDashboardController {
    */
   async getUsers(req, res, next) {
     try {
-      const users = await UserRepository.findAll();
+      const users = await UserRepository.findAllForAdmin();
+      res.set('Cache-Control', 'no-store');
       res.status(200).json(users);
     } catch (error) {
       next(error);
@@ -39,7 +41,7 @@ class AdminDashboardController {
         ...log,
         admin: { full_name: `${log.first_name} ${log.last_name}` }
       }));
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json(formattedLogs);
     } catch (error) {
       next(error);
@@ -49,6 +51,7 @@ class AdminDashboardController {
   async getTrustReport(req, res, next) {
     try {
       const report = await AdminDashboardService.getTransactionTrustReport(req.params.id, true);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: report
@@ -110,7 +113,7 @@ class AdminDashboardController {
           email: p.email
         }
       }));
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatted
@@ -124,24 +127,8 @@ class AdminDashboardController {
   async getVendors(req, res, next) {
     try {
       const { status } = req.query;
-      
-      let query = `
-        SELECT v.*, u.email, u.profile_image_url, 
-               (SELECT c.slug FROM categories c 
-                JOIN vendor_category_junction vcj ON c.id = vcj.category_id 
-                WHERE vcj.vendor_id = v.id LIMIT 1) as category
-        FROM vendor_profiles v 
-        JOIN users u ON v.user_id = u.id 
-        WHERE v.deleted_at IS NULL
-      `;
-      const params = [];
-
-      if (status && status !== 'ALL') {
-        query += ` AND v.verification_status = ?`;
-        params.push(status);
-      }
-
-      const [vendors] = await pool.execute(query, params);
+      const vendors = await VendorRepository.findAllForAdmin({ status });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: res.formatLocalization(vendors)
@@ -231,7 +218,7 @@ class AdminDashboardController {
           params: { n: pendingVendors[0].count }
         });
       }
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: alerts

@@ -128,6 +128,8 @@ class ProductService {
 
       // Notify admins/owner that a new product is pending review
       await NotificationService.notifyAdminsProductSubmitted(product.id, productData.name_en || productData.name_ar);
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
 
       return this._decorateProduct(await ProductRepository.findById(product.id));
     } catch (error) {
@@ -199,6 +201,8 @@ class ProductService {
         });
       }
 
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
       return this._decorateProduct(updatedProduct);
     } catch (error) {
       await connection.rollback();
@@ -254,6 +258,8 @@ class ProductService {
         await NotificationService.notifyVendorProductRejected(vendorUserId, product.name_en || product.name_ar, reason);
       }
 
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
       return this._decorateProduct(await ProductRepository.findById(productId));
     } catch (error) {
       await connection.rollback();
@@ -301,10 +307,14 @@ class ProductService {
     let slug = base;
     let counter = 1;
     while (true) {
-      const [rows] = await pool.execute('SELECT id FROM products WHERE slug = :slug LIMIT 1', { slug });
+      const [rows] = await pool.execute(
+        'SELECT id FROM products WHERE slug = :slug AND deleted_at IS NULL LIMIT 1',
+        { slug }
+      );
       if (rows.length === 0) break;
       slug = `${base}-${counter++}`;
     }
+    await ProductRepository.purgeSoftDeletedBySlug(slug);
     return slug;
   }
 
@@ -325,6 +335,12 @@ class ProductService {
 
   async getProductById(id) {
     const product = await ProductRepository.findById(id);
+    if (!product) throw new AppError('Product not found', 404);
+    return this._decorateProduct(product);
+  }
+
+  async getProductByIdForAdmin(id) {
+    const product = await ProductRepository.findById(id, { includeDeleted: true });
     if (!product) throw new AppError('Product not found', 404);
     return this._decorateProduct(product);
   }
@@ -357,12 +373,18 @@ class ProductService {
       changedBy: vendorId,
       note: 'Soft deleted by vendor'
     });
-    return ProductRepository.softDelete(id);
+    const result = await ProductRepository.softDelete(id);
+    MetricsCacheService.invalidate('public:marketplace-summary');
+    MetricsCacheService.invalidate('public:vendors');
+    return result;
   }
 
   async bulkDeleteProducts(ids, vendorId) {
     if (!ids || ids.length === 0) return;
-    return ProductRepository.bulkSoftDelete(ids, vendorId);
+    const result = await ProductRepository.bulkSoftDelete(ids, vendorId);
+    MetricsCacheService.invalidate('public:marketplace-summary');
+    MetricsCacheService.invalidate('public:vendors');
+    return result;
   }
 }
 

@@ -8,6 +8,7 @@ import UserRepository from '../repositories/UserRepository.js';
 import pool from '../config/db.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import UploadService from '../services/UploadService.js';
+import MetricsCacheService from '../services/MetricsCacheService.js';
 
 class AdminController {
   /**
@@ -31,7 +32,7 @@ class AdminController {
         throw new AppError('You cannot change your own role', 400);
       }
 
-      const targetUser = await UserRepository.findById(id);
+      const targetUser = await UserRepository.findById(id, connection, true);
       if (!targetUser) {
         throw new AppError('User not found', 404);
       }
@@ -51,6 +52,8 @@ class AdminController {
       );
 
       await connection.commit();
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
 
       res.status(200).json({
         status: 'success',
@@ -126,12 +129,41 @@ class AdminController {
         throw new AppError('You cannot delete your own account from here', 400);
       }
 
-      const targetUser = await UserRepository.findById(id);
+      const targetUser = await UserRepository.findById(id, connection, true);
       if (!targetUser) {
         throw new AppError('User not found', 404);
       }
 
-      // 1. Persistence: Mark as deleted
+      const [[vendorProfile]] = await connection.execute(
+        `SELECT id, logo_public_id, verification_docs_public_id
+         FROM vendor_profiles
+         WHERE user_id = :id
+         LIMIT 1`,
+        { id }
+      );
+
+      let vendorAssets = [];
+      if (vendorProfile?.id) {
+        const [imageRows] = await connection.execute(
+          `
+          SELECT pi.public_id
+          FROM product_images pi
+          JOIN products p ON p.id = pi.product_id
+          WHERE p.vendor_id = :vendorId
+          `,
+          { vendorId: vendorProfile.id }
+        );
+        vendorAssets = imageRows.map((row) => row.public_id).filter(Boolean);
+      }
+
+      const assetPublicIds = [
+        targetUser.profile_image_public_id,
+        vendorProfile?.logo_public_id,
+        vendorProfile?.verification_docs_public_id,
+        ...vendorAssets
+      ].filter(Boolean);
+
+      // 1. Persistence: Hard delete to activate DB-level cascade cleanup.
       await UserRepository.delete(id, connection);
 
       // 2. Audit Logging
@@ -139,17 +171,24 @@ class AdminController {
         'INSERT INTO admin_logs (admin_id, action, target_id, details) VALUES (:admin_id, :action, :target_id, :details)',
         {
           admin_id: req.user.id,
-          action: 'DELETE_USER',
-          target_id: id,
-          details: `Soft-deleted user ${targetUser.email}`
-        }
+        action: targetUser.deleted_at ? 'PURGE_USER' : 'DELETE_USER',
+        target_id: id,
+        details: `${targetUser.deleted_at ? 'Purged' : 'Deleted'} user ${targetUser.email}`
+      }
       );
 
       await connection.commit();
 
+      await Promise.allSettled(
+        assetPublicIds.map((publicId) => UploadService.deleteImage(publicId))
+      );
+      MetricsCacheService.invalidate('public:marketplace-summary');
+      MetricsCacheService.invalidate('public:vendors');
+      MetricsCacheService.invalidate('public:categories');
+
       res.status(200).json({
         status: 'success',
-        message: 'User account permanently deleted'
+        message: targetUser.deleted_at ? 'Deleted user permanently purged' : 'User account permanently deleted'
       });
     } catch (error) {
       await connection.rollback();

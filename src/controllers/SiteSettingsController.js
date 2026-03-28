@@ -17,6 +17,7 @@ class SiteSettingsController {
   async getSettings(req, res, next) {
     try {
       const settings = await SiteSettingsService.getSettings();
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: settings
@@ -69,7 +70,7 @@ class SiteSettingsController {
         seo_og_image: parseAsset(settings.seo_og_image),
         social_links: parseAsset(settings.social_links || '[]')
       };
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: publicData

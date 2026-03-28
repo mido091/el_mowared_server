@@ -33,9 +33,9 @@ class UserRepository {
    * @param {number} id 
    * @returns {Promise<Object|null>} Basic user identity.
    */
-  async findById(id, connection = pool) {
+  async findById(id, connection = pool, includeDeleted = false) {
     const [rows] = await connection.execute(
-      'SELECT * FROM users WHERE id = :id AND deleted_at IS NULL',
+      `SELECT * FROM users WHERE id = :id ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
       { id }
     );
     return rows[0];
@@ -196,10 +196,38 @@ class UserRepository {
       `SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.role, u.profile_image_url, u.is_active, u.created_at, 
               v.id as vendor_profile_id 
        FROM users u 
-       LEFT JOIN vendor_profiles v ON u.id = v.user_id 
+       LEFT JOIN vendor_profiles v ON u.id = v.user_id AND v.deleted_at IS NULL
        WHERE u.deleted_at IS NULL 
        ORDER BY u.created_at DESC`
     );
+    return rows;
+  }
+
+  async findAllForAdmin(connection = pool) {
+    const [rows] = await connection.execute(`
+      SELECT
+        u.id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.phone,
+        u.role,
+        u.profile_image_url,
+        u.is_active,
+        u.created_at,
+        u.updated_at,
+        u.deleted_at,
+        v.id AS vendor_profile_id,
+        v.deleted_at AS vendor_deleted_at,
+        CASE
+          WHEN u.deleted_at IS NOT NULL THEN 'DELETED'
+          WHEN u.is_active = 0 THEN 'INACTIVE'
+          ELSE 'ACTIVE'
+        END AS record_state
+      FROM users u
+      LEFT JOIN vendor_profiles v ON u.id = v.user_id
+      ORDER BY u.created_at DESC, u.id DESC
+    `);
     return rows;
   }
 
@@ -211,7 +239,7 @@ class UserRepository {
    * @param {Object} [connection] 
    */
   async delete(id, connection = pool) {
-    await connection.execute('UPDATE users SET deleted_at = NOW() WHERE id = :id', { id });
+    await connection.execute('DELETE FROM users WHERE id = :id', { id });
   }
 
   /**

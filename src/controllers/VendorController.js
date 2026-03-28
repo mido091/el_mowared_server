@@ -32,6 +32,7 @@ class VendorController {
       // 2. Fetch enriched data (includes categories).
       const vendor = await VendorService.getVendorById(vendorProfile.id);
 
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: { vendor }
@@ -44,7 +45,7 @@ class VendorController {
   getVendors = async (req, res, next) => {
     try {
       const vendors = await VendorService.getVendors(req.query);
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         results: vendors.length,
@@ -58,7 +59,7 @@ class VendorController {
   getVendorById = async (req, res, next) => {
     try {
       const vendor = await VendorService.getVendorById(req.params.id);
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: { vendor }
@@ -71,7 +72,7 @@ class VendorController {
   getVendorMetrics = async (req, res, next) => {
     try {
       const metrics = await VendorMetricsService.getVendorMetrics(req.params.id);
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: metrics
@@ -85,6 +86,18 @@ class VendorController {
     try {
       const { status } = req.body;
       const result = await VendorService.verifyVendor(req.params.id, status);
+      res.status(200).json({
+        status: 'success',
+        data: result
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  deleteVendorAdmin = async (req, res, next) => {
+    try {
+      const result = await VendorService.deleteVendorCascade(req.params.id, req.user?.id || null);
       res.status(200).json({
         status: 'success',
         data: result
@@ -123,6 +136,7 @@ class VendorController {
   getMyStats = async (req, res, next) => {
     try {
       const stats = await VendorService.getVendorStats(req.user.id);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: stats });
     } catch (error) {
       next(error);
@@ -133,6 +147,7 @@ class VendorController {
     try {
       const { limit } = req.query;
       const orders = await VendorService.getVendorOrders(req.user.id, limit);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: orders });
     } catch (error) {
       next(error);
@@ -148,7 +163,7 @@ class VendorController {
         TransactionRepository.getSummary(vendor.id),
         TransactionRepository.findByVendor(vendor.id)
       ]);
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: { summary, transactions }
@@ -161,6 +176,7 @@ class VendorController {
   getSalesReview = async (req, res, next) => {
     try {
       const data = await SalesReviewService.getDashboard(req.user.id);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data

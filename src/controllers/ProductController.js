@@ -10,23 +10,33 @@ import { paginate, formatPaginatedResponse } from '../utils/pagination.js';
 import crypto from 'crypto';
 import { AppError } from '../middlewares/errorHandler.js';
 
+const optionalPositiveNumber = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return Number(val);
+}, z.number().positive().optional());
+
+const optionalNonNegativeInteger = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return undefined;
+  return Number(val);
+}, z.number().int().nonnegative().optional());
+
 const productSchema = z.object({
   categoryId: z.preprocess((val) => Number(val), z.number()),
   name_ar: z.string().min(3),
   name_en: z.string().min(3),
   description_ar: z.string().min(10),
   description_en: z.string().min(10),
-  price: z.preprocess((val) => Number(val), z.number().nonnegative()).optional(),
-  discountPrice: z.preprocess((val) => Number(val), z.number().nonnegative()).optional(),
-  minOrderQuantity: z.preprocess((val) => Number(val), z.number().int().positive()).optional(),
-  quantityAvailable: z.preprocess((val) => {
+  price: z.preprocess((val) => {
     if (val === '' || val === null || val === undefined) return undefined;
     return Number(val);
-  }, z.number().int().nonnegative()).optional(),
-  quantity_available: z.preprocess((val) => {
+  }, z.number().positive()),
+  discountPrice: optionalPositiveNumber,
+  minOrderQuantity: z.preprocess((val) => {
     if (val === '' || val === null || val === undefined) return undefined;
     return Number(val);
-  }, z.number().int().nonnegative()).optional(),
+  }, z.number().int().positive().optional()),
+  quantityAvailable: optionalNonNegativeInteger,
+  quantity_available: optionalNonNegativeInteger,
   location: z.string().optional(),
   specs: z.union([z.string(), z.array(z.any())]).optional()
 });
@@ -86,6 +96,7 @@ class ProductController {
         offset
       });
       const pendingProducts = products.filter((product) => ['PENDING', 'UPDATE_PENDING'].includes((product.lifecycle_status || product.status || '').toUpperCase()));
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatPaginatedResponse(res.formatLocalization(pendingProducts), pendingProducts.length, p, l)
@@ -101,7 +112,7 @@ class ProductController {
 
   async getAdminOne(req, res, next) {
     try {
-      const product = await ProductService.getProductById(req.params.id);
+      const product = await ProductService.getProductByIdForAdmin(req.params.id);
       res.status(200).json({ status: 'success', data: res.formatLocalization(product) });
     } catch (error) {
       next(error);
@@ -126,7 +137,7 @@ class ProductController {
         publicOnly: true  // Only APPROVED products for public
       });
 
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatPaginatedResponse(res.formatLocalization(products), total, p, l)
@@ -160,14 +171,7 @@ class ProductController {
         offset
       });
 
-      console.dir({
-         event: 'VENDOR_CATALOG_DEBUG',
-         reqUserVendorId: vendorId,
-         queryLimit: l, offset,
-         totalFound: total,
-         productsLength: products.length
-      });
-
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatPaginatedResponse(res.formatLocalization(products), total, p, l)
@@ -193,7 +197,7 @@ class ProductController {
         publicOnly: true
       });
 
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatPaginatedResponse(res.formatLocalization(products), total, p, l)
@@ -217,6 +221,7 @@ class ProductController {
         }, 404, 'NOT_FOUND');
       }
       await ProductService.recordProductView(product.id, this._buildViewContext(req));
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: res.formatLocalization(product) });
     } catch (error) {
       next(error);
@@ -226,7 +231,7 @@ class ProductController {
   async getMetrics(req, res, next) {
     try {
       const metrics = await ProductMetricsService.getProductMetrics(req.params.id);
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: metrics
@@ -240,6 +245,7 @@ class ProductController {
     try {
       await ProductService.recordProductView(req.params.id, this._buildViewContext(req));
       const metrics = await ProductMetricsService.getProductMetrics(req.params.id, { force: true });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: metrics
@@ -252,7 +258,7 @@ class ProductController {
   async getPublicSummary(req, res, next) {
     try {
       const summary = await ProductService.getPublicMarketplaceSummary();
-      res.set('Cache-Control', 'public, max-age=300, stale-while-revalidate=600');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: summary
@@ -269,7 +275,7 @@ class ProductController {
     try {
       const product = await ProductService.getProductById(req.params.id);
       const similar = await ProductService.getSimilarProducts(product.category_id, req.params.id, 4);
-      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: res.formatLocalization(similar) });
     } catch (error) {
       next(error);
@@ -282,6 +288,7 @@ class ProductController {
   async getStatusHistory(req, res, next) {
     try {
       const history = await ProductService.getStatusHistory(req.params.id);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: history });
     } catch (error) {
       next(error);
@@ -384,6 +391,7 @@ class ProductController {
         limit: l,
         offset
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({
         status: 'success',
         data: formatPaginatedResponse(res.formatLocalization(products), total, p, l)
@@ -407,6 +415,7 @@ class ProductController {
       }
       const idList = ids.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
       const products = await ProductService.compareProducts(idList);
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data: res.formatLocalization(products) });
     } catch (error) {
       next(error);

@@ -32,6 +32,7 @@
     "dev": "nodemon --experimental-specifier-resolution=node index.js",
     "start": "node index.js",
     "db:init": "node init-db.js",
+    "db:cleanup:business": "node scripts/cleanupBusinessData.mjs",
     "test": "node --experimental-vm-modules --experimental-specifier-resolution=node node_modules/jest/bin/jest.js --detectOpenHandles --forceExit"
   },
   "keywords": [],

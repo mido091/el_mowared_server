@@ -18,6 +18,20 @@ class CategoryRepository {
     return rows;
   }
 
+  async findAllForAdmin(connection = pool) {
+    const [rows] = await connection.execute(`
+      SELECT
+        c.*,
+        CASE
+          WHEN c.deleted_at IS NOT NULL THEN 'DELETED'
+          ELSE 'ACTIVE'
+        END AS record_state
+      FROM categories c
+      ORDER BY c.created_at DESC, c.id DESC
+    `);
+    return rows;
+  }
+
   /**
    * Retrieves a specific category by ID.
    * 
@@ -25,12 +39,20 @@ class CategoryRepository {
    * @param {number} id 
    * @returns {Promise<Object|null>} Category record.
    */
-  async findById(id) {
-    const [rows] = await pool.execute(
-      'SELECT * FROM categories WHERE id = :id AND deleted_at IS NULL',
+  async findById(id, connection = pool, includeDeleted = false) {
+    const [rows] = await connection.execute(
+      `SELECT * FROM categories WHERE id = :id ${includeDeleted ? '' : 'AND deleted_at IS NULL'}`,
       { id }
     );
     return rows[0];
+  }
+
+  async findBySlug(slug, includeDeleted = false, connection = pool) {
+    const [rows] = await connection.execute(
+      `SELECT * FROM categories WHERE slug = :slug ${includeDeleted ? '' : 'AND deleted_at IS NULL'} LIMIT 1`,
+      { slug }
+    );
+    return rows[0] || null;
   }
 
   /**
@@ -40,13 +62,13 @@ class CategoryRepository {
    * @param {Object} categoryData - Multi-language labels and SEO slug.
    * @returns {Promise<Object>} Created category summary.
    */
-  async create(categoryData) {
+  async create(categoryData, connection = pool) {
     const { nameAr, nameEn, slug, icon, parentId } = categoryData;
     const sql = `
       INSERT INTO categories (name_ar, name_en, slug, icon, parent_id, created_at, updated_at)
       VALUES (:nameAr, :nameEn, :slug, :icon, :parentId, NOW(), NOW())
     `;
-    const [result] = await pool.execute(sql, { nameAr, nameEn, slug, icon, parentId });
+    const [result] = await connection.execute(sql, { nameAr, nameEn, slug, icon, parentId });
     return { id: result.insertId, nameAr, nameEn, slug };
   }
 
@@ -58,15 +80,36 @@ class CategoryRepository {
    * @param {Object} categoryData 
    * @returns {Promise<Object>} Updated category record.
    */
-  async update(id, categoryData) {
+  async update(id, categoryData, connection = pool) {
     const { nameAr, nameEn, slug, icon, parentId } = categoryData;
     const sql = `
       UPDATE categories 
       SET name_ar = :nameAr, name_en = :nameEn, slug = :slug, icon = :icon, parent_id = :parentId, updated_at = NOW()
       WHERE id = :id AND deleted_at IS NULL
     `;
-    await pool.execute(sql, { id, nameAr, nameEn, slug, icon, parentId });
-    return this.findById(id);
+    await connection.execute(sql, { id, nameAr, nameEn, slug, icon, parentId });
+    return this.findById(id, connection);
+  }
+
+  async findDescendantIds(rootId, connection = pool, includeDeleted = false) {
+    const [rows] = await connection.execute(
+      `SELECT id, parent_id FROM categories ${includeDeleted ? '' : 'WHERE deleted_at IS NULL'}`
+    );
+
+    const descendants = new Set();
+    const queue = [Number(rootId)];
+
+    while (queue.length) {
+      const currentId = queue.shift();
+      if (descendants.has(currentId)) continue;
+      descendants.add(currentId);
+
+      rows
+        .filter((row) => Number(row.parent_id) === Number(currentId))
+        .forEach((row) => queue.push(Number(row.id)));
+    }
+
+    return Array.from(descendants);
   }
 
   /**
@@ -79,7 +122,24 @@ class CategoryRepository {
     const sql = 'UPDATE categories SET deleted_at = NOW() WHERE id = :id';
     await pool.execute(sql, { id });
   }
+
+  async hardDeleteByIds(ids, connection = pool) {
+    if (!ids?.length) return 0;
+    const [result] = await connection.query(
+      'DELETE FROM categories WHERE id IN (?)',
+      [ids]
+    );
+    return result.affectedRows || 0;
+  }
+
+  async purgeSoftDeletedBySlug(slug, connection = pool) {
+    if (!slug) return 0;
+    const [result] = await connection.execute(
+      'DELETE FROM categories WHERE slug = :slug AND deleted_at IS NOT NULL',
+      { slug }
+    );
+    return result.affectedRows || 0;
+  }
 }
 
 export default new CategoryRepository();
-
