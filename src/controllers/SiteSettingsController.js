@@ -47,6 +47,7 @@ class SiteSettingsController {
         site_description_ar: settings.site_description_ar || '',
         site_description_en: settings.site_description_en || '',
         site_logo: parseAsset(settings.site_logo),
+        site_logo_dark: parseAsset(settings.site_logo_dark),
         site_favicon: parseAsset(settings.site_favicon),
         default_language: settings.default_language || 'ar',
         default_theme: settings.default_theme || 'light',
@@ -91,7 +92,7 @@ class SiteSettingsController {
       if (req.file) {
         const { key } = req.body;
         // Validation: Restrict media logic to authorized brand keys.
-        if (!['site_logo', 'site_favicon', 'seo_og_image'].includes(key)) {
+        if (!['site_logo', 'site_logo_dark', 'site_favicon', 'seo_og_image'].includes(key)) {
           throw new AppError('Invalid key for media upload', 400);
         }
         

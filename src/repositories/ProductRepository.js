@@ -259,7 +259,7 @@ class ProductRepository {
   async getPublicMarketplaceSummary() {
     const statusSql = await this._buildStatusSql();
 
-    const [[products], [vendors], [orders], [countries]] = await Promise.all([
+    const [[products], [vendors], [orders], [countries], [users]] = await Promise.all([
       pool.query(`
         SELECT COUNT(*) AS total
         FROM products p
@@ -282,6 +282,12 @@ class ProductRepository {
         WHERE deleted_at IS NULL
           AND location IS NOT NULL
           AND TRIM(location) <> ''
+      `),
+      pool.query(`
+        SELECT COUNT(*) AS total
+        FROM users
+        WHERE deleted_at IS NULL
+          AND is_active = 1
       `)
     ]);
 
@@ -289,7 +295,8 @@ class ProductRepository {
       total_products: Number(products[0]?.total || 0),
       total_vendors: Number(vendors[0]?.total || 0),
       total_completed_orders: Number(orders[0]?.total || 0),
-      total_countries: Number(countries[0]?.total || 0)
+      total_countries: Number(countries[0]?.total || 0),
+      total_users: Number(users[0]?.total || 0)
     };
   }
 

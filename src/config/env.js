@@ -43,7 +43,11 @@ export const env = {
   cloudinaryName: required('CLD_NAME'),
   cloudinaryApiKey: required('API_KEY'),
   cloudinaryApiSecret: required('API_SECRET'),
-  frontendOrigins: parseFrontendOrigins()
+  frontendOrigins: parseFrontendOrigins(),
+  pusherAppId: required('PUSHER_APP_ID'),
+  pusherKey: required('PUSHER_KEY'),
+  pusherSecret: required('PUSHER_SECRET'),
+  pusherCluster: required('PUSHER_CLUSTER')
 };
 
 export const isProduction = env.nodeEnv === 'production';

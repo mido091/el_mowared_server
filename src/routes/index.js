@@ -23,6 +23,7 @@ import adminRoutes from './adminRoutes.js';
 import ownerRoutes from './ownerRoutes.js';
 import contactRoutes from './contactRoutes.js';
 import quickReplyRoutes from './quickReplyRoutes.js';
+import realtimeRoutes from './realtimeRoutes.js';
 
 const router = express.Router();
 
@@ -58,5 +59,6 @@ router.use('/admin', adminRoutes);            // Admin-Only: user management & s
 router.use('/settings', siteSettingsRoutes);   // Admin-Only: global site config
 router.use('/contact', contactRoutes);         // Mixed: Public submit, Admin view
 router.use('/quick-replies', quickReplyRoutes); // Mixed: Vendor/Admin templates
+router.use('/realtime', realtimeRoutes);        // Authenticated: Pusher auth + client realtime actions
 
 export default router;

@@ -10,6 +10,7 @@ const router = express.Router();
 
 router.post('/start', protect, chatMessageLimiter, validate({ body: chatSchemas.start }), ChatController.startConversation);
 router.get('/conversations', protect, ChatController.getConversations);
+router.get('/support/availability', protect, ChatController.getSupportAvailability);
 router.patch('/:id/claim', protect, validate({ params: chatSchemas.conversationIdParam }), ChatController.claimSupportConversation);
 router.delete('/:id', protect, validate({ params: chatSchemas.conversationIdParam }), ChatController.deleteConversation);
 router.get('/:id/messages', protect, validate({ params: chatSchemas.conversationIdParam }), ChatController.getMessages);

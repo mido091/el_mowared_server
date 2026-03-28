@@ -112,6 +112,24 @@ export const chatSchemas = {
   })
 };
 
+export const realtimeSchemas = {
+  pusherAuth: Joi.object({
+    socket_id: Joi.string().trim().min(1).required(),
+    channel_name: Joi.string().trim().min(1).required()
+  }),
+  presence: Joi.object({
+    state: Joi.string().valid('online', 'offline').required()
+  }),
+  typing: Joi.object({
+    conversationId: Joi.number().integer().positive().required(),
+    state: Joi.string().valid('start', 'stop').required()
+  }),
+  read: Joi.object({
+    conversationId: Joi.number().integer().positive().required(),
+    messageId: Joi.number().integer().positive().required()
+  })
+};
+
 export const rfqSchemas = {
   idParam,
   offerIdParam: Joi.object({

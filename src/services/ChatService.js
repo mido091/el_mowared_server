@@ -9,9 +9,11 @@ import NotificationRepository from '../repositories/NotificationRepository.js';
 import ContactMessageRepository from '../repositories/ContactMessageRepository.js';
 import UserRepository from '../repositories/UserRepository.js';
 import pool from '../config/db.js';
-import { getIO, isUserOnline } from '../config/socket.js';
+import { getIO, getOnlineUserIds, isUserOnline } from '../config/socket.js';
 import { sendSimpleEmail } from './emailService.js';
 import { AppError } from '../middlewares/errorHandler.js';
+
+const supportPoolNotificationTimestamps = new Map();
 
 class ChatService {
   async _resolveConversationAudience(conversation, connection = pool) {
@@ -102,8 +104,9 @@ class ChatService {
 
   async _getSupportPoolState(connection = pool) {
     const adminPool = await UserRepository.findAdminPool(connection);
-    const onlineAdmins = adminPool.filter((user) => user.role === 'ADMIN' && isUserOnline(user.id));
-    const onlineOwners = adminPool.filter((user) => user.role === 'OWNER' && isUserOnline(user.id));
+    const onlineUserIds = new Set((await getOnlineUserIds()).map((id) => Number(id)));
+    const onlineAdmins = adminPool.filter((user) => user.role === 'ADMIN' && onlineUserIds.has(Number(user.id)));
+    const onlineOwners = adminPool.filter((user) => user.role === 'OWNER' && onlineUserIds.has(Number(user.id)));
     return {
       adminPool,
       onlineAdmins,
@@ -115,8 +118,9 @@ class ChatService {
 
   async _getSupportRecipients(connection = pool) {
     const supportPoolState = await this._getSupportPoolState(connection);
-    if (supportPoolState.onlineAdmins.length) return supportPoolState.onlineAdmins;
-    if (supportPoolState.onlineOwners.length) return supportPoolState.onlineOwners;
+    if (supportPoolState.hasAnyOnlineAgent) {
+      return [...supportPoolState.onlineAdmins, ...supportPoolState.onlineOwners];
+    }
     return supportPoolState.adminPool;
   }
 
@@ -135,7 +139,20 @@ class ChatService {
     }
   }
 
-  async _notifySupportPool(conversation, connection = pool) {
+  async _notifySupportPool(conversation, connection = pool, options = {}) {
+    const { force = false } = options;
+    const conversationId = Number(conversation?.id || 0);
+    const throttleKey = conversationId > 0 ? `support:${conversationId}` : null;
+    const now = Date.now();
+
+    if (!force && throttleKey) {
+      const lastNotificationAt = supportPoolNotificationTimestamps.get(throttleKey) || 0;
+      if (now - lastNotificationAt < 60_000) {
+        return;
+      }
+      supportPoolNotificationTimestamps.set(throttleKey, now);
+    }
+
     const recipients = await this._getSupportRecipients(connection);
     const createJobs = recipients.map((admin) =>
       NotificationRepository.create({
@@ -277,7 +294,7 @@ class ChatService {
       // Ignore when socket server is unavailable.
     }
 
-    if (!isUserOnline(vendorUser.user_id) && vendorUser.email) {
+    if (!(await isUserOnline(vendorUser.user_id)) && vendorUser.email) {
       const productTitle = productSnapshot?.product_name || productSnapshot?.titleEn || productSnapshot?.titleAr || 'a product';
       const productLink = `${process.env.CLIENT_URL || ''}${productSnapshot?.product_url || productSnapshot?.url || '/chat'}`;
       try {
@@ -326,7 +343,7 @@ class ChatService {
       // Socket optional in non-live execution paths.
     }
 
-    if (!isUserOnline(buyer.id) && buyer.email) {
+    if (!(await isUserOnline(buyer.id)) && buyer.email) {
       try {
         await sendSimpleEmail({
           to: buyer.email,
@@ -365,6 +382,8 @@ class ChatService {
 
       let createdNow = false;
 
+      let supportPoolState = null;
+
       if (!conversation) {
         let adminId = null;
         let status = this._getInitialStatus(normalizedType);
@@ -374,11 +393,11 @@ class ChatService {
         let assignedAt = null;
 
         if (normalizedType === 'SUPPORT') {
-          const supportPoolState = await this._getSupportPoolState(connection);
+          supportPoolState = await this._getSupportPoolState(connection);
           supportRequestedAt = new Date();
           const pendingCount = await ChatRepository.countPendingSupportRequests(connection);
           queuePosition = pendingCount + 1;
-          status = supportPoolState.hasAnyOnlineAgent ? 'assigned' : 'waiting';
+          status = 'waiting';
           estimatedResponseMinutes = this._estimateResponseMinutes(
             pendingCount,
             supportPoolState.onlineAgentCount
@@ -429,7 +448,8 @@ class ChatService {
 
       let systemMessage = null;
       if (normalizedType === 'SUPPORT' && createdNow) {
-        const supportTexts = this._getLocalizedSupportTexts(locale, conversation.status === 'assigned');
+        const hasAvailableAgent = !!supportPoolState?.hasAnyOnlineAgent;
+        const supportTexts = this._getLocalizedSupportTexts(locale, hasAvailableAgent);
         systemMessage = await ChatRepository.createMessage({
           conversationId: conversation.id,
           senderId: userId,
@@ -437,8 +457,8 @@ class ChatService {
           type: 'SYSTEM',
           attachments: [],
           metadata: {
-            supportAvailability: conversation.status === 'assigned' ? 'available' : 'busy',
-            cta: conversation.status === 'assigned' ? null : '/contact-us',
+            supportAvailability: hasAvailableAgent ? 'available' : 'busy',
+            cta: hasAvailableAgent ? null : '/contact-us',
             estimatedResponseMinutes: conversation.estimated_response_minutes || null
           }
         }, connection);
@@ -448,7 +468,7 @@ class ChatService {
           [vendorId]
         );
         const vendorUserId = vendorRows[0]?.user_id ? Number(vendorRows[0].user_id) : null;
-        if (!vendorUserId || !isUserOnline(vendorUserId)) {
+        if (!vendorUserId || !(await isUserOnline(vendorUserId))) {
           systemMessage = await ChatRepository.createMessage({
             conversationId: conversation.id,
             senderId: userId,
@@ -470,7 +490,7 @@ class ChatService {
         await this._notifySupportPool({
           ...conversation,
           estimated_response_minutes: conversation.estimated_response_minutes || null
-        }, connection);
+        }, connection, { force: true });
       } else if (vendorId) {
         const initiatorRole = `${options.initiatorRole || ''}`.toUpperCase();
         const initiatorVendorId = Number(options.initiatorVendorProfileId || 0) || null;
@@ -811,6 +831,43 @@ class ChatService {
         connection.release();
       }
     }
+  }
+
+  async getSupportAvailability(conversationId = null, connection = pool) {
+    const supportPoolState = await this._getSupportPoolState(connection);
+    const pendingCount = await ChatRepository.countPendingSupportRequests(connection);
+
+    let conversation = null;
+    let queuePosition = pendingCount + 1;
+    let status = supportPoolState.hasAnyOnlineAgent ? 'available' : 'busy';
+
+    if (conversationId) {
+      conversation = await ChatRepository.findById(conversationId, connection);
+      if (conversation?.type === 'SUPPORT') {
+        if (conversation.admin_id) {
+          status = 'claimed';
+        } else if (supportPoolState.hasAnyOnlineAgent) {
+          status = 'available';
+        } else {
+          status = 'busy';
+        }
+
+        queuePosition = conversation.queue_position || queuePosition;
+      }
+    }
+
+    return {
+      available: supportPoolState.hasAnyOnlineAgent,
+      status,
+      onlineAgentCount: supportPoolState.onlineAgentCount,
+      queuePosition,
+      estimatedResponseMinutes: this._estimateResponseMinutes(
+        Math.max((queuePosition || 1) - 1, 0),
+        supportPoolState.onlineAgentCount
+      ),
+      conversationId: conversation?.id || null,
+      assignedAdminId: conversation?.admin_id || null
+    };
   }
 
   async convertContactMessageToSupportChat(contactMessageId, actorId, locale = 'en') {

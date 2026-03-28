@@ -7,7 +7,6 @@
 import ChatService from '../services/ChatService.js';
 import ChatRepository from '../repositories/ChatRepository.js';
 import UploadService from '../services/UploadService.js';
-import { getIO } from '../config/socket.js';
 import pool from '../config/db.js';
 import { z } from 'zod';
 import { AppError } from '../middlewares/errorHandler.js';
@@ -33,6 +32,10 @@ const sendMessageSchema = z.object({
 
 const updateConversationStatusSchema = z.object({
   status: z.enum(['active', 'idle', 'resolved', 'closed', 'archived'])
+});
+
+const supportAvailabilityQuerySchema = z.object({
+  conversationId: z.string().regex(/^\d+$/).optional()
 });
 
 const LOCKED_CONVERSATION_TYPES = new Set(['SUPPORT']);
@@ -70,6 +73,7 @@ class ChatController {
   _shouldGateMessage(conversation, user) {
     return LOCKED_CONVERSATION_TYPES.has(conversation.type) &&
       this._isOwnerParticipant(conversation, user) &&
+      !!conversation.admin_id &&
       ['assigned'].includes((conversation.status || '').toLowerCase());
   }
 
@@ -158,6 +162,18 @@ class ChatController {
       if (!req.user || !req.user.id) throw new AppError('Authentication context missing', 401);
       const conversations = await ChatService.getConversations(req.user.id, req.user.role);
       this._respond(res, 200, conversations, 'Conversations fetched successfully.');
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  getSupportAvailability = async (req, res, next) => {
+    try {
+      const { conversationId } = supportAvailabilityQuerySchema.parse(req.query || {});
+      const data = await ChatService.getSupportAvailability(
+        conversationId ? Number(conversationId) : null
+      );
+      this._respond(res, 200, data, 'Support availability fetched successfully.');
     } catch (error) {
       next(error);
     }
