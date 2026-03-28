@@ -41,7 +41,7 @@ class ChatService {
     return Array.from(audience);
   }
 
-  _emitToAudience(event, payload, rooms = []) {
+  async _emitToAudience(event, payload, rooms = []) {
     if (!rooms.length) return;
     try {
       const io = getIO();
@@ -49,7 +49,7 @@ class ChatService {
       rooms.forEach((room) => {
         emitter = emitter.to(room);
       });
-      emitter.emit(event, payload);
+      await emitter.emit(event, payload);
     } catch {
       // Socket availability is optional in non-live/script flows.
     }
@@ -128,12 +128,12 @@ class ChatService {
     if (!userId) return;
     await NotificationRepository.create(payload, connection);
     try {
-      getIO().to(`${userId}`).emit('notification', {
-        message: payload.titleEn,
-        messageAr: payload.titleAr,
-        type: 'info',
-        notificationType: payload.type || null
-      });
+        await getIO().to(`${userId}`).emit('notification', {
+          message: payload.titleEn,
+          messageAr: payload.titleAr,
+          type: 'info',
+          notificationType: payload.type || null
+        });
     } catch {
       // Socket optional in non-live execution paths.
     }
@@ -168,13 +168,13 @@ class ChatService {
 
     try {
       const io = getIO();
-      recipients.forEach((admin) => {
+      await Promise.allSettled(recipients.map((admin) =>
         io.to(`${admin.id}`).emit('support_assigned', {
           conversationId: conversation.id,
           adminId: conversation.admin_id || null,
           status: conversation.status
-        });
-      });
+        })
+      ));
     } catch {
       // Ignore socket unavailability here.
     }
@@ -184,14 +184,14 @@ class ChatService {
     try {
       const admins = await UserRepository.findAdminPool();
       const io = getIO();
-      admins.forEach((admin) => {
+      await Promise.allSettled(admins.map((admin) =>
         io.to(`${admin.id}`).emit('support_assigned', {
           conversationId: conversation.id,
           adminId: conversation.admin_id || null,
           status: conversation.status
-        });
-      });
-      io.to(`${conversation.user_id}`).emit('support_assigned', {
+        })
+      ));
+      await io.to(`${conversation.user_id}`).emit('support_assigned', {
         conversationId: conversation.id,
         adminId: conversation.admin_id || null,
         status: conversation.status
@@ -285,11 +285,11 @@ class ChatService {
     }, connection);
 
     try {
-      getIO().to(`${vendorUser.user_id}`).emit('notification', {
-        type: 'info',
-        message: 'New vendor inquiry received',
-        conversationId: conversation.id
-      });
+        await getIO().to(`${vendorUser.user_id}`).emit('notification', {
+          type: 'info',
+          message: 'New vendor inquiry received',
+          conversationId: conversation.id
+        });
     } catch {
       // Ignore when socket server is unavailable.
     }
@@ -334,11 +334,11 @@ class ChatService {
     }, connection);
 
     try {
-      getIO().to(`${buyer.id}`).emit('notification', {
-        type: 'info',
-        message: 'A supplier started a conversation about your RFQ',
-        conversationId: conversation.id
-      });
+        await getIO().to(`${buyer.id}`).emit('notification', {
+          type: 'info',
+          message: 'A supplier started a conversation about your RFQ',
+          conversationId: conversation.id
+        });
     } catch {
       // Socket optional in non-live execution paths.
     }
@@ -520,18 +520,18 @@ class ChatService {
         enrichedConversation || { ...conversation, user_id: conversationUserId, vendor_id: vendorId },
         passedConnection || pool
       );
-      this._emitToAudience('new_message', {
+      await this._emitToAudience('new_message', {
         conversationId: conversation.id,
         message
       }, audience);
       if (systemMessage) {
-        this._emitToAudience('new_message', {
+        await this._emitToAudience('new_message', {
           conversationId: conversation.id,
           message: systemMessage
         }, audience);
       }
       if (conversation.admin_id) {
-        this._emitToAudience('support_assigned', {
+        await this._emitToAudience('support_assigned', {
           conversationId: conversation.id,
           userId,
           status: conversation.status
@@ -645,7 +645,7 @@ class ChatService {
         refreshedConversation || conversation,
         passedConnection || pool
       );
-      this._emitToAudience('new_message', {
+      await this._emitToAudience('new_message', {
         conversationId,
         message: newMessage
       }, audience);
@@ -928,13 +928,13 @@ class ChatService {
 
     try {
       const io = getIO();
-      io.to(`conv_${conversationId}`).emit('conversation_deleted', { conversationId });
-      io.to(`${conversation.user_id}`).emit('conversation_deleted', { conversationId });
+      await io.to(`conv_${conversationId}`).emit('conversation_deleted', { conversationId });
+      await io.to(`${conversation.user_id}`).emit('conversation_deleted', { conversationId });
 
       const admins = await UserRepository.findAdminPool();
-      admins.forEach((admin) => {
-        io.to(`${admin.id}`).emit('conversation_deleted', { conversationId });
-      });
+      await Promise.allSettled(admins.map((admin) =>
+        io.to(`${admin.id}`).emit('conversation_deleted', { conversationId })
+      ));
     } catch {
       // Socket availability is optional.
     }

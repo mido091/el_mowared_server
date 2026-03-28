@@ -15,6 +15,15 @@ const required = (name, { minLength = 1, disallow = [] } = {}) => {
   return value;
 };
 
+const optional = (name, fallback = '') => {
+  const value = process.env[name];
+  if (value === undefined || value === null || `${value}`.trim() === '') {
+    return fallback;
+  }
+
+  return `${value}`.trim();
+};
+
 const parseFrontendOrigins = () => {
   const configured = process.env.FRONTEND_URL;
   if (!configured) {
@@ -47,7 +56,7 @@ export const env = {
   pusherAppId: required('PUSHER_APP_ID'),
   pusherKey: required('PUSHER_KEY'),
   pusherSecret: required('PUSHER_SECRET'),
-  pusherCluster: required('PUSHER_CLUSTER')
+  pusherCluster: optional('PUSHER_CLUSTER', 'eu')
 };
 
 export const isProduction = env.nodeEnv === 'production';

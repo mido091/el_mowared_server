@@ -52,7 +52,7 @@ class QuoteService {
         const io = getIO();
         const [vendorUsers] = await connection.execute('SELECT user_id FROM vendor_profiles WHERE id = ?', [quote.vendor_id]);
         if (vendorUsers.length > 0) {
-          io.to(vendorUsers[0].user_id.toString()).emit('new_quote', { quoteId: quote.id });
+          await io.to(vendorUsers[0].user_id.toString()).emit('new_quote', { quoteId: quote.id });
         }
       } catch (e) {}
 

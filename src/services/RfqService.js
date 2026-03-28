@@ -73,7 +73,7 @@ class RfqService {
                 contentEn: `A new RFQ titled "${rfq?.rfqTitle || 'RFQ'}" is now available in your leads center.`
               });
 
-              io.to(vendor.user_id.toString()).emit('new_rfq', {
+              await io.to(vendor.user_id.toString()).emit('new_rfq', {
                 type: 'success',
                 messageAr: `يوجد طلب RFQ جديد بعنوان "${rfq?.title || 'RFQ'}" بانتظار المراجعة.`,
                 messageEn: `New Lead: ${rfq?.rfqTitle || 'RFQ'} matches your categories.`,
@@ -151,7 +151,7 @@ class RfqService {
             contentEn: `A new RFQ titled "${rfq.title}" is now available in your leads center.`
           }, connection);
 
-          io.to(vendor.user_id.toString()).emit('new_rfq', {
+          await io.to(vendor.user_id.toString()).emit('new_rfq', {
             message: `New Lead: ${rfq.title} matches your categories.`,
             rfq_id: rfq.id,
             type: 'success'
@@ -408,7 +408,7 @@ class RfqService {
       // Real-time Notification to the winning vendor
       try {
         const io = getIO();
-        io.to(offer.vendor_id.toString()).emit('notification', {
+        await io.to(offer.vendor_id.toString()).emit('notification', {
            message: `Congratulations! Your offer for RFQ #${offer.rfq_id} has been ACCEPTED.`,
            type: 'success',
            link: `/dashboard/vendor/rfq-offers`

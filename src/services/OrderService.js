@@ -192,8 +192,8 @@ class OrderService {
         // Notify via Socket
         try {
           const io = getIO();
-          io.to(order.user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
-          io.to(order.vendor_user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
+          await io.to(order.user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
+          await io.to(order.vendor_user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
         } catch (e) {}
       } else {
         // 5. Rejection Flow: Inform the user to re-upload the receipt.
@@ -264,9 +264,9 @@ class OrderService {
       // Notify via Socket
       try {
         const io = getIO();
-        io.to(order.user_id.toString()).emit('order_update', { orderId: order.id, status: newStatus });
+        await io.to(order.user_id.toString()).emit('order_update', { orderId: order.id, status: newStatus });
         if (order.vendor_user_id) {
-          io.to(order.vendor_user_id.toString()).emit('order_update', { orderId: order.id, status: newStatus });
+          await io.to(order.vendor_user_id.toString()).emit('order_update', { orderId: order.id, status: newStatus });
         }
       } catch (e) {}
     }
