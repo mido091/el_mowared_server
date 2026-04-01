@@ -59,6 +59,8 @@ export const productSchemas = {
     category_id: Joi.number().integer().positive(),
     name_ar: Joi.string().min(3).max(255).required(),
     name_en: Joi.string().min(3).max(255).required(),
+    modelNumber: Joi.string().trim().max(120).allow('', null),
+    model_number: Joi.string().trim().max(120).allow('', null),
     description_ar: Joi.string().min(10).max(5000).required(),
     description_en: Joi.string().min(10).max(5000).required(),
     price: Joi.number().positive().required(),
@@ -74,6 +76,8 @@ export const productSchemas = {
     category_id: Joi.number().integer().positive(),
     name_ar: Joi.string().min(3).max(255),
     name_en: Joi.string().min(3).max(255),
+    modelNumber: Joi.string().trim().max(120).allow('', null),
+    model_number: Joi.string().trim().max(120).allow('', null),
     description_ar: Joi.string().min(10).max(5000),
     description_en: Joi.string().min(10).max(5000),
     price: Joi.number().positive(),
@@ -137,8 +141,35 @@ export const rfqSchemas = {
   }),
   create: Joi.object({
     category_id: Joi.number().integer().positive().required(),
-    title: Joi.string().trim().min(3).max(255).required(),
-    description: Joi.string().max(5000).allow('', null),
+    items: Joi.alternatives().try(
+      Joi.array().items(
+        Joi.object({
+          label: Joi.string().trim().min(1).max(255).required(),
+          details: Joi.string().trim().min(1).max(5000).required(),
+          order: Joi.number().integer().positive().optional()
+        })
+      ).min(1),
+      Joi.string().custom((value, helpers) => {
+        try {
+          const parsed = JSON.parse(value);
+          const { error } = Joi.array().items(
+            Joi.object({
+              label: Joi.string().trim().min(1).max(255).required(),
+              details: Joi.string().trim().min(1).max(5000).required(),
+              order: Joi.number().integer().positive().optional()
+            })
+          ).min(1).validate(parsed);
+
+          if (error) {
+            return helpers.error('any.invalid');
+          }
+
+          return value;
+        } catch {
+          return helpers.error('any.invalid');
+        }
+      })
+    ).required(),
     quantity: Joi.number().integer().positive().required(),
     target_price: Joi.number().positive().allow(null),
     lead_priority: Joi.string().valid('LOW', 'MEDIUM', 'HIGH'),

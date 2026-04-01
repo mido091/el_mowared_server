@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS products (
   category_id INT NOT NULL,
   name_ar VARCHAR(255) NOT NULL,
   name_en VARCHAR(255) NOT NULL,
+  model_number VARCHAR(120) NULL,
   description_ar TEXT NOT NULL,
   description_en TEXT NOT NULL,
   slug VARCHAR(255) NOT NULL UNIQUE,
@@ -98,6 +99,7 @@ CREATE TABLE IF NOT EXISTS products (
   CONSTRAINT fk_products_last_reviewed_by FOREIGN KEY (last_reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_products_vendor (vendor_id),
   INDEX idx_products_category (category_id),
+  INDEX idx_products_model_number (model_number),
   INDEX idx_products_lifecycle_status (lifecycle_status),
   INDEX idx_products_status (status),
   INDEX idx_products_is_visible (is_visible)
@@ -284,6 +286,7 @@ CREATE TABLE IF NOT EXISTS rfq_requests (
   category_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT NULL,
+  rfq_items JSON NULL,
   quantity INT NOT NULL,
   target_price DECIMAL(10,2) NULL,
   privacy_type ENUM('PUBLIC', 'PRIVATE') DEFAULT 'PUBLIC',

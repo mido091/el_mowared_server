@@ -6,18 +6,22 @@ import { getIO } from '../config/socket.js';
 import DashboardMetricsService from './DashboardMetricsService.js';
 import VendorMetricsService from './VendorMetricsService.js';
 import pool from '../config/db.js';
+import { buildRfqTitle, normalizeRfqItems } from '../utils/rfqItems.js';
 
 class RfqService {
   /**
    * Creates a new RFQ natively defaulting to DRAFT or PENDING based on input.
    */
   async createRfq(rfqData, submit = false) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
     let broadcastContext = null;
 
     try {
-      const rfqId = await RfqRepository.createRfq(rfqData, connection);
+      const normalizedItems = normalizeRfqItems(rfqData.items);
+      const rfqTitle = buildRfqTitle(normalizedItems);
+      const rfqId = await RfqRepository.createRfq({ ...rfqData, items: normalizedItems }, connection);
       
       // Log history DRAFT
       await RfqRepository.updateStatus(rfqId, null, RFQ_STATUSES.DRAFT, rfqData.user_id, 'RFQ Created', connection);
@@ -48,7 +52,7 @@ class RfqService {
 
         broadcastContext = {
           rfqId,
-          rfqTitle: rfqData.title,
+          rfqTitle,
           vendors
         };
       }
@@ -59,7 +63,7 @@ class RfqService {
       if (submit) {
         try {
           const reviewers = broadcastContext?.vendors || [];
-          const rfq = broadcastContext || { rfqId, rfqTitle: rfqData.title, vendors: reviewers };
+          const rfq = broadcastContext || { rfqId, rfqTitle, vendors: reviewers };
           const io = getIO();
 
           await Promise.allSettled(
@@ -69,13 +73,13 @@ class RfqService {
                 type: 'RFQ_MATCH',
                 titleAr: 'طلب RFQ جديد بانتظار المراجعة',
                 titleEn: 'New RFQ opportunity in your category',
-                contentAr: `يوجد طلب جديد بعنوان "${rfq?.title || 'RFQ'}" يحتاج مراجعة.`,
+                contentAr: `يوجد طلب جديد بعنوان "${rfq?.rfqTitle || 'RFQ'}" يحتاج مراجعة.`,
                 contentEn: `A new RFQ titled "${rfq?.rfqTitle || 'RFQ'}" is now available in your leads center.`
               });
 
               await io.to(vendor.user_id.toString()).emit('new_rfq', {
                 type: 'success',
-                messageAr: `يوجد طلب RFQ جديد بعنوان "${rfq?.title || 'RFQ'}" بانتظار المراجعة.`,
+                messageAr: `يوجد طلب RFQ جديد بعنوان "${rfq?.rfqTitle || 'RFQ'}" بانتظار المراجعة.`,
                 messageEn: `New Lead: ${rfq?.rfqTitle || 'RFQ'} matches your categories.`,
                 rfq_id: rfq?.rfqId
               });
@@ -100,6 +104,7 @@ class RfqService {
    * Finds matching vendors via the category junction.
    */
   async broadcastRfq(rfqId, adminId) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -172,6 +177,7 @@ class RfqService {
   }
 
   async rejectRfq(rfqId, adminId) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -214,6 +220,7 @@ class RfqService {
    * Employs the First-Come-Locking system via DB updates to prevent race conditions.
    */
   async submitOffer(rfqId, vendorId, actorUserId, payload) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -274,6 +281,7 @@ class RfqService {
   }
 
   async declineRfq(rfqId, vendorId, actorUser) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -347,6 +355,7 @@ class RfqService {
    * choosing a winner should finalize the RFQ rather than keep it open.
    */
   async acceptOffer(offerId, userId) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -467,6 +476,7 @@ class RfqService {
   }
 
   async deleteRfq(rfqId, userId) {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     await connection.beginTransaction();
 
@@ -513,6 +523,7 @@ class RfqService {
    * Cron/Scheduled routine to detect expired RFQs and natively mark them.
    */
   async expireOldLeads() {
+    await RfqRepository.initializeRuntimeSchema(pool);
     const connection = await pool.getConnection();
     try {
       // Find leads whose expiration_time has passed and are not in terminal states.

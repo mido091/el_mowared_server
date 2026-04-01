@@ -112,6 +112,52 @@ class CategoryRepository {
     return Array.from(descendants);
   }
 
+  async expandIds(ids, options = {}, connection = pool, includeDeleted = false) {
+    const { includeDescendants = false, includeAncestors = false } = options;
+    const normalizedIds = Array.isArray(ids)
+      ? ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+      : [];
+
+    if (!normalizedIds.length) return [];
+
+    const [rows] = await connection.execute(
+      `SELECT id, parent_id FROM categories ${includeDeleted ? '' : 'WHERE deleted_at IS NULL'}`
+    );
+
+    const byId = new Map(rows.map((row) => [Number(row.id), row]));
+    const expanded = new Set(normalizedIds);
+
+    if (includeDescendants) {
+      const queue = [...normalizedIds];
+      while (queue.length) {
+        const currentId = Number(queue.shift());
+        rows
+          .filter((row) => Number(row.parent_id) === currentId)
+          .forEach((row) => {
+            const nextId = Number(row.id);
+            if (!expanded.has(nextId)) {
+              expanded.add(nextId);
+              queue.push(nextId);
+            }
+          });
+      }
+    }
+
+    if (includeAncestors) {
+      normalizedIds.forEach((seedId) => {
+        let currentId = seedId;
+        while (byId.get(currentId)?.parent_id != null) {
+          const parentId = Number(byId.get(currentId).parent_id);
+          if (!Number.isFinite(parentId) || expanded.has(parentId)) break;
+          expanded.add(parentId);
+          currentId = parentId;
+        }
+      });
+    }
+
+    return Array.from(expanded);
+  }
+
   /**
    * Performs a soft delete on a category to preserve historical associations.
    * 

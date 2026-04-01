@@ -5,6 +5,7 @@
  */
 
 import ProductRepository from '../repositories/ProductRepository.js';
+import CategoryRepository from '../repositories/CategoryRepository.js';
 import NotificationService from './NotificationService.js';
 import ProductMetricsService from './ProductMetricsService.js';
 import MetricsCacheService from './MetricsCacheService.js';
@@ -27,6 +28,25 @@ class ProductService {
     }
 
     return parsed;
+  }
+
+  _normalizeModelNumber(productData = {}, options = {}) {
+    const { preserveUndefined = false } = options;
+    const hasCamel = Object.prototype.hasOwnProperty.call(productData, 'modelNumber');
+    const hasSnake = Object.prototype.hasOwnProperty.call(productData, 'model_number');
+
+    if (!hasCamel && !hasSnake) {
+      return preserveUndefined ? undefined : null;
+    }
+
+    const rawValue = hasCamel ? productData.modelNumber : productData.model_number;
+
+    if (rawValue === null || rawValue === undefined) {
+      return preserveUndefined ? undefined : null;
+    }
+
+    const normalized = String(rawValue).trim();
+    return normalized || null;
   }
 
   _effectiveStatus(product) {
@@ -106,7 +126,8 @@ class ProductService {
     try {
       const slug = await this.generateUniqueSlug(productData.name_en);
       const quantityAvailable = this._normalizeQuantityAvailable(productData);
-      const product = await ProductRepository.create({ ...productData, slug, quantityAvailable }, connection);
+      const modelNumber = this._normalizeModelNumber(productData);
+      const product = await ProductRepository.create({ ...productData, slug, quantityAvailable, modelNumber }, connection);
 
       if (files && files.length > 0) {
         const uploadPromises = files.map(f => UploadService.uploadImage(f.buffer, 'elmowared/products'));
@@ -158,12 +179,14 @@ class ProductService {
       const previousStatus = this._effectiveStatus(product);
       const slug = productData.name_en ? await this.generateUniqueSlug(productData.name_en) : product.slug;
       const quantityAvailable = this._normalizeQuantityAvailable(productData);
+      const modelNumber = this._normalizeModelNumber(productData, { preserveUndefined: true });
 
       const updatedProduct = await ProductRepository.update(id, {
         ...product,
         ...productData,
         slug,
         quantityAvailable,
+        modelNumber,
         currentLifecycleStatus: previousLifecycleStatus,
         currentStatus: previousStatus
       }, connection);
@@ -321,7 +344,13 @@ class ProductService {
   // ─── Basic CRUD Wrappers ─────────────────────────────────────────────────────
 
   async getAllProducts(filters) {
-    const result = await ProductRepository.findAll(filters);
+    const normalizedFilters = { ...filters };
+
+    if (normalizedFilters.categoryId && !normalizedFilters.categoryIds) {
+      normalizedFilters.categoryIds = await CategoryRepository.findDescendantIds(normalizedFilters.categoryId);
+    }
+
+    const result = await ProductRepository.findAll(normalizedFilters);
     return { ...result, products: this._decorateProductCollection(result.products) };
   }
 

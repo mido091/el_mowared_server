@@ -4,6 +4,7 @@ import UploadService from '../services/UploadService.js';
 import pool from '../config/db.js';
 import { z } from 'zod';
 import { AppError } from '../middlewares/errorHandler.js';
+import { normalizeRfqItems, parseRfqItemsInput } from '../utils/rfqItems.js';
 
 class RfqController {
   _normalizeDateTime(value) {
@@ -42,8 +43,7 @@ class RfqController {
     try {
       const normalizedBody = {
         category_id: req.body.category_id === '' || req.body.category_id == null ? undefined : Number(req.body.category_id),
-        title: req.body.title,
-        description: req.body.description,
+        items: normalizeRfqItems(parseRfqItemsInput(req.body.items)),
         quantity: req.body.quantity === '' || req.body.quantity == null ? undefined : Number(req.body.quantity),
         target_price: req.body.target_price === '' || req.body.target_price == null ? undefined : Number(req.body.target_price),
         lead_priority: req.body.lead_priority,
@@ -55,8 +55,11 @@ class RfqController {
 
       const schema = z.object({
         category_id: z.number().int().positive(),
-        title: z.string().min(3).max(255),
-        description: z.string().optional(),
+        items: z.array(z.object({
+          label: z.string().min(1).max(255),
+          details: z.string().min(1).max(5000),
+          order: z.number().int().positive().optional()
+        })).min(1),
         quantity: z.number().int().positive(),
         target_price: z.number().positive().optional(),
         lead_priority: z.enum(['LOW', 'MEDIUM', 'HIGH']).optional(),

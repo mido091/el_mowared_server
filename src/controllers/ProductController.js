@@ -20,10 +20,18 @@ const optionalNonNegativeInteger = z.preprocess((val) => {
   return Number(val);
 }, z.number().int().nonnegative().optional());
 
+const optionalModelNumber = z.preprocess((val) => {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === 'string') return val.trim();
+  return String(val).trim();
+}, z.string().max(120).optional());
+
 const productSchema = z.object({
   categoryId: z.preprocess((val) => Number(val), z.number()),
   name_ar: z.string().min(3),
   name_en: z.string().min(3),
+  modelNumber: optionalModelNumber,
+  model_number: optionalModelNumber,
   description_ar: z.string().min(10),
   description_en: z.string().min(10),
   price: z.preprocess((val) => {

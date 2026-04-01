@@ -34,6 +34,11 @@ class ProductRepository {
         await connection.query('ALTER TABLE products ADD COLUMN quantity_available INT NOT NULL DEFAULT 0 AFTER min_order_quantity');
       }
 
+      if (!currentColumns.has('model_number')) {
+        await connection.query('ALTER TABLE products ADD COLUMN model_number VARCHAR(120) NULL AFTER name_en');
+        await connection.query('CREATE INDEX idx_products_model_number ON products (model_number)');
+      }
+
       this._productColumns = null;
       this._productColumnMeta = null;
       this._inventorySchemaReady = true;
@@ -120,9 +125,11 @@ class ProductRepository {
    * Retrieves a paginated list of products with advanced filtering.
    * Public endpoints only see APPROVED products; vendor/admin see all.
    */
-  async findAll({ categoryId, vendorId, searchTerm, minPrice, maxPrice, moq, location, sortBy = 'newest', limit = 10, offset = 0, specs, discounted, publicOnly = false, lifecycleStatus }) {
+  async findAll({ categoryId, categoryIds, vendorId, searchTerm, minPrice, maxPrice, moq, location, sortBy = 'newest', limit = 10, offset = 0, specs, discounted, publicOnly = false, lifecycleStatus }) {
     const statusSql = await this._buildStatusSql();
     const hasViewLogs = await this._supportsProductViewLogs();
+    const effectiveMinPriceSql = 'LEAST(COALESCE(p.discount_price, p.price), p.price)';
+    const effectiveMaxPriceSql = 'GREATEST(COALESCE(p.discount_price, p.price), p.price)';
     const selectClause = `
       SELECT p.*, 
              ${statusSql.statusSelect},
@@ -152,7 +159,16 @@ class ProductRepository {
       params.lifecycleStatus = lifecycleStatus;
     }
 
-    if (categoryId) {
+    if (Array.isArray(categoryIds) && categoryIds.length > 0) {
+      const normalizedCategoryIds = categoryIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+      if (normalizedCategoryIds.length > 0) {
+        const categoryPlaceholders = normalizedCategoryIds.map((_, index) => `:categoryId_${index}`).join(', ');
+        fromWhereClause += ` AND p.category_id IN (${categoryPlaceholders})`;
+        normalizedCategoryIds.forEach((id, index) => {
+          params[`categoryId_${index}`] = id;
+        });
+      }
+    } else if (categoryId) {
       fromWhereClause += ' AND p.category_id = :categoryId';
       params.categoryId = categoryId;
     }
@@ -167,6 +183,7 @@ class ProductRepository {
       fromWhereClause += ` AND (
         p.name_ar LIKE :searchTerm OR 
         p.name_en LIKE :searchTerm OR 
+        p.model_number LIKE :searchTerm OR
         p.description_ar LIKE :searchTerm OR 
         p.description_en LIKE :searchTerm OR 
         c.name_ar LIKE :searchTerm OR 
@@ -175,11 +192,11 @@ class ProductRepository {
       params.searchTerm = `%${searchTerm}%`;
     }
     if (minPrice) {
-      fromWhereClause += ' AND p.price >= :minPrice';
+      fromWhereClause += ` AND ${effectiveMinPriceSql} >= :minPrice`;
       params.minPrice = minPrice;
     }
     if (maxPrice) {
-      fromWhereClause += ' AND p.price <= :maxPrice';
+      fromWhereClause += ` AND ${effectiveMaxPriceSql} <= :maxPrice`;
       params.maxPrice = maxPrice;
     }
     if (moq) {
@@ -209,8 +226,8 @@ class ProductRepository {
     const total = countResult[0]?.total || 0;
 
     let orderBy = 'p.created_at DESC';
-    if (sortBy === 'price_low') orderBy = 'p.price ASC';
-    else if (sortBy === 'price_high') orderBy = 'p.price DESC';
+    if (sortBy === 'price_low') orderBy = `${effectiveMinPriceSql} ASC`;
+    else if (sortBy === 'price_high') orderBy = `${effectiveMaxPriceSql} DESC`;
     else if (sortBy === 'rating') orderBy = 'COALESCE(vpa.avg_rating, vs.avg_rating, 0) DESC';
 
     const finalLimit = parseInt(limit) || 10;
@@ -342,6 +359,7 @@ class ProductRepository {
              COALESCE(vpa.review_count, vs.review_count, 0) as review_count,
              vs.response_rate, vs.is_verified, vs.vendor_id as vs_vendor_id,
              vu.id as vendor_user_id,
+             vu.phone as vendor_phone,
              vp.logo as vendor_logo,
              vp.created_at as vendor_created_at,
              (
@@ -378,6 +396,7 @@ class ProductRepository {
         review_count: product.review_count,
         response_rate: product.response_rate,
         is_verified: product.is_verified,
+        phone: product.vendor_phone || null,
         logo: product.vendor_logo,
         total_products: product.vendor_total_products,
         member_since: product.vendor_created_at,
@@ -391,8 +410,9 @@ class ProductRepository {
    */
   async findSimilar(categoryId, excludeId, limit = 4) {
     const statusSql = await this._buildStatusSql();
+    const hasModelNumber = await this._hasProductColumn('model_number');
     const sql = `
-      SELECT p.id, p.slug, p.name_ar, p.name_en, p.price, p.lifecycle_status, ${statusSql.statusSelect}, ${statusSql.visibilitySelect},
+      SELECT p.id, p.slug, p.name_ar, p.name_en, ${hasModelNumber ? 'p.model_number' : 'NULL AS model_number'}, p.price, p.lifecycle_status, ${statusSql.statusSelect}, ${statusSql.visibilitySelect},
              COALESCE(vpa.avg_rating, vs.avg_rating, 0) as avg_rating,
              (SELECT image_url FROM product_images WHERE product_id = p.id AND is_main = 1 LIMIT 1) as main_image
       FROM products p
@@ -421,8 +441,9 @@ class ProductRepository {
     const hasEdited = await this._hasProductColumn('is_edited');
     const hasLastReviewedAt = await this._hasProductColumn('last_reviewed_at');
     const hasQuantityAvailable = await this._hasProductColumn('quantity_available');
+    const hasModelNumber = await this._hasProductColumn('model_number');
     let sql = `
-      SELECT p.id, p.name_ar, p.name_en, p.lifecycle_status, ${statusSql.statusSelect}, ${statusSql.visibilitySelect},
+      SELECT p.id, p.name_ar, p.name_en, ${hasModelNumber ? 'p.model_number' : 'NULL as model_number'}, p.lifecycle_status, ${statusSql.statusSelect}, ${statusSql.visibilitySelect},
              p.vendor_id,
              ${hasQuantityAvailable ? 'p.quantity_available' : '0 as quantity_available'},
              ${hasRejectionReason ? 'p.rejection_reason' : 'NULL as rejection_reason'},
@@ -557,17 +578,22 @@ class ProductRepository {
    * Creates a new product record (lifecycle_status = PENDING by default).
    */
   async create(productData, connection = pool) {
-    const { vendorId, categoryId, name_ar, name_en, description_ar, description_en, slug, price, discountPrice, minOrderQuantity, quantityAvailable, location, specs } = productData;
+    const { vendorId, categoryId, name_ar, name_en, modelNumber, description_ar, description_en, slug, price, discountPrice, minOrderQuantity, quantityAvailable, location, specs } = productData;
     const hasStatus = await this._hasProductColumn('status', connection);
     const hasVisible = await this._hasProductColumn('is_visible', connection);
     const hasDiscountPrice = await this._hasProductColumn('discount_price', connection);
     const hasQuantityAvailable = await this._hasProductColumn('quantity_available', connection);
     const hasLocation = await this._hasProductColumn('location', connection);
     const hasSpecs = await this._hasProductColumn('specs', connection);
+    const hasModelNumber = await this._hasProductColumn('model_number', connection);
 
     const columns = ['vendor_id', 'category_id', 'name_ar', 'name_en', 'description_ar', 'description_en', 'slug', 'price', 'min_order_quantity', 'lifecycle_status'];
     const values = [':vendorId', ':categoryId', ':name_ar', ':name_en', ':description_ar', ':description_en', ':slug', ':price', ':minOrderQuantity', `'PENDING'`];
-    
+
+    if (hasModelNumber) {
+      columns.push('model_number');
+      values.push(':modelNumber');
+    }
     if (hasDiscountPrice) {
       columns.push('discount_price');
       values.push(':discountPrice');
@@ -600,6 +626,7 @@ class ProductRepository {
     `;
     const [result] = await connection.execute(sql, {
       vendorId, categoryId, name_ar, name_en, description_ar, description_en, slug,
+      modelNumber: modelNumber || null,
       price: price || 0,
       discountPrice: discountPrice ?? null,
       minOrderQuantity: minOrderQuantity || 1,
@@ -624,7 +651,7 @@ class ProductRepository {
    * If product was APPROVED → re-set to PENDING + mark is_edited.
    */
   async update(id, productData, connection = pool) {
-    const { categoryId, name_ar, name_en, description_ar, description_en, slug, price, discountPrice, minOrderQuantity, quantityAvailable, location, specs, currentLifecycleStatus, currentStatus } = productData;
+    const { categoryId, name_ar, name_en, modelNumber, description_ar, description_en, slug, price, discountPrice, minOrderQuantity, quantityAvailable, location, specs, currentLifecycleStatus, currentStatus } = productData;
     const hasStatus = await this._hasProductColumn('status', connection);
     const hasVisible = await this._hasProductColumn('is_visible', connection);
     const hasEdited = await this._hasProductColumn('is_edited', connection);
@@ -633,6 +660,7 @@ class ProductRepository {
     const hasLocation = await this._hasProductColumn('location', connection);
     const hasSpecs = await this._hasProductColumn('specs', connection);
     const hasLifecycleStatus = await this._hasProductColumn('lifecycle_status', connection);
+    const hasModelNumber = await this._hasProductColumn('model_number', connection);
 
     // Re-PENDING logic: if product was APPROVED, set back to PENDING for moderation
     const effectiveCurrentStatus = currentStatus || currentLifecycleStatus || 'PENDING';
@@ -670,6 +698,7 @@ class ProductRepository {
     ];
     if (hasDiscountPrice) updateParts.push('discount_price = :discountPrice');
     if (hasQuantityAvailable) updateParts.push('quantity_available = :quantityAvailable');
+    if (hasModelNumber && modelNumber !== undefined) updateParts.push('model_number = :modelNumber');
     if (hasLocation) updateParts.push('location = :location');
     if (hasSpecs) updateParts.push('specs = :specs');
     if (hasLifecycleStatus && newLifecycleStatus) updateParts.push('lifecycle_status = :newLifecycleStatus');
@@ -686,6 +715,7 @@ class ProductRepository {
       discountPrice: discountPrice === '' || discountPrice === undefined ? null : discountPrice,
       minOrderQuantity: minOrderQuantity || 1,
       quantityAvailable: Number.isInteger(quantityAvailable) ? quantityAvailable : 0,
+      modelNumber: modelNumber === undefined ? undefined : (modelNumber || null),
       location: location || null,
       specs: typeof specs === 'string' ? specs : (specs ? JSON.stringify(specs) : null),
       newLifecycleStatus,
