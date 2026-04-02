@@ -10,11 +10,48 @@ import NotificationService from './NotificationService.js';
 import ProductMetricsService from './ProductMetricsService.js';
 import MetricsCacheService from './MetricsCacheService.js';
 import UploadService from './UploadService.js';
+import RealtimeService from './RealtimeService.js';
 import slugify from 'slugify';
 import pool from '../config/db.js';
 import { AppError } from '../middlewares/errorHandler.js';
 
 class ProductService {
+  async _emitProductRealtime(eventName, payload = {}, options = {}) {
+    const { vendorUserId = null, admin = false, marketplace = false } = options;
+    const basePayload = {
+      revision: Date.now(),
+      ...payload,
+    };
+
+    const jobs = [];
+
+    if (marketplace) {
+      jobs.push(RealtimeService.emitToMarketplace(eventName, { scope: 'marketplace', ...basePayload }));
+    }
+
+    if (admin) {
+      jobs.push(RealtimeService.emitToRole('admin', eventName, { scope: 'admin', ...basePayload }));
+    }
+
+    if (vendorUserId) {
+      jobs.push(RealtimeService.emitToUser(vendorUserId, eventName, { scope: 'vendor', ...basePayload }));
+    }
+
+    jobs.push(RealtimeService.emitDashboardMetricsChanged({
+      admin,
+      vendorUserIds: vendorUserId ? [vendorUserId] : [],
+      marketplace,
+      payload: {
+        entity: 'product',
+        productId: payload.productId || payload.id || null,
+        lifecycleStatus: payload.lifecycleStatus || null,
+        revision: basePayload.revision,
+      },
+    }));
+
+    await Promise.allSettled(jobs);
+  }
+
   _normalizeQuantityAvailable(productData = {}) {
     const rawValue = productData.quantityAvailable ?? productData.quantity_available ?? 0;
 
@@ -152,6 +189,16 @@ class ProductService {
       MetricsCacheService.invalidate('public:marketplace-summary');
       MetricsCacheService.invalidate('public:vendors');
 
+      const vendorUserId = await this.getVendorUserId(productData.vendorId);
+      await this._emitProductRealtime('product.created', {
+        productId: product.id,
+        lifecycleStatus: 'PENDING',
+      }, {
+        vendorUserId,
+        admin: true,
+        marketplace: false,
+      });
+
       return this._decorateProduct(await ProductRepository.findById(product.id));
     } catch (error) {
       await connection.rollback();
@@ -226,6 +273,16 @@ class ProductService {
 
       MetricsCacheService.invalidate('public:marketplace-summary');
       MetricsCacheService.invalidate('public:vendors');
+      const vendorUserId = await this.getVendorUserId(product.vendor_id);
+      const nextLifecycleStatus = previousStatus === 'APPROVED' ? 'UPDATE_PENDING' : 'PENDING';
+      await this._emitProductRealtime('product.updated', {
+        productId: id,
+        lifecycleStatus: nextLifecycleStatus,
+      }, {
+        vendorUserId,
+        admin: true,
+        marketplace: previousStatus === 'APPROVED',
+      });
       return this._decorateProduct(updatedProduct);
     } catch (error) {
       await connection.rollback();
@@ -283,6 +340,14 @@ class ProductService {
 
       MetricsCacheService.invalidate('public:marketplace-summary');
       MetricsCacheService.invalidate('public:vendors');
+      await this._emitProductRealtime('product.reviewed', {
+        productId,
+        lifecycleStatus: newStatus,
+      }, {
+        vendorUserId,
+        admin: true,
+        marketplace: true,
+      });
       return this._decorateProduct(await ProductRepository.findById(productId));
     } catch (error) {
       await connection.rollback();
@@ -405,6 +470,15 @@ class ProductService {
     const result = await ProductRepository.softDelete(id);
     MetricsCacheService.invalidate('public:marketplace-summary');
     MetricsCacheService.invalidate('public:vendors');
+    const vendorUserId = await this.getVendorUserId(product.vendor_id);
+    await this._emitProductRealtime('product.deleted', {
+      productId: id,
+      lifecycleStatus: 'DELETED',
+    }, {
+      vendorUserId,
+      admin: true,
+      marketplace: true,
+    });
     return result;
   }
 
@@ -413,6 +487,15 @@ class ProductService {
     const result = await ProductRepository.bulkSoftDelete(ids, vendorId);
     MetricsCacheService.invalidate('public:marketplace-summary');
     MetricsCacheService.invalidate('public:vendors');
+    const vendorUserId = await this.getVendorUserId(vendorId);
+    await this._emitProductRealtime('product.deleted', {
+      productIds: ids,
+      lifecycleStatus: 'DELETED',
+    }, {
+      vendorUserId,
+      admin: true,
+      marketplace: true,
+    });
     return result;
   }
 }

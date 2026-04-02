@@ -35,13 +35,15 @@ class NotificationRepository {
    * @returns {Promise<Array>} List of chronological notifications.
    */
   async findByUserId(userId, limit = 20, offset = 0) {
+    const normalizedLimit = Math.max(1, Math.min(100, Number(limit) || 20));
+    const normalizedOffset = Math.max(0, Number(offset) || 0);
     const sql = `
       SELECT * FROM notifications 
-      WHERE user_id = :userId 
+      WHERE user_id = ? 
       ORDER BY created_at DESC 
-      LIMIT :limit OFFSET :offset
+      LIMIT ${normalizedLimit} OFFSET ${normalizedOffset}
     `;
-    const [rows] = await pool.execute(sql, { userId, limit, offset });
+    const [rows] = await pool.execute(sql, [userId]);
     return rows;
   }
 
@@ -55,6 +57,11 @@ class NotificationRepository {
   async markAsRead(id, userId) {
     const sql = 'UPDATE notifications SET is_read = TRUE WHERE id = :id AND user_id = :userId';
     await pool.execute(sql, { id, userId });
+  }
+
+  async markAllAsRead(userId) {
+    const sql = 'UPDATE notifications SET is_read = TRUE WHERE user_id = :userId AND is_read = FALSE';
+    await pool.execute(sql, { userId });
   }
 
   /**

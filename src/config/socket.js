@@ -177,6 +177,13 @@ class RealtimeEmitter {
     return new RealtimeEmitter([...this.channels, channel]);
   }
 
+  toMany(rooms = []) {
+    const normalizedChannels = (rooms || [])
+      .map((room) => normalizeRoomToChannel(room))
+      .filter(Boolean);
+    return new RealtimeEmitter([...this.channels, ...normalizedChannels]);
+  }
+
   emit(eventName, payload) {
     if (!this.channels.length) {
       return Promise.resolve(false);
@@ -243,6 +250,25 @@ export const authorizePusherChannel = async ({ socketId, channelName, user }) =>
         en: 'You are not allowed to subscribe to this realtime channel.',
         ar: 'غير مسموح لك بالاشتراك في هذه القناة الفورية.'
       }, 'REALTIME_CHANNEL_FORBIDDEN');
+    }
+
+    return ensurePusher().authorizeChannel(socketId, channelName);
+  }
+
+  const roleChannelMatch = channelName.match(/^private-role\.(admin|vendor)$/);
+  if (roleChannelMatch) {
+    const roleKey = roleChannelMatch[1];
+    const userRole = `${user.role || ''}`.toUpperCase();
+    const canAccessRoleChannel = (
+      (roleKey === 'admin' && ['ADMIN', 'OWNER'].includes(userRole))
+      || (roleKey === 'vendor' && userRole === 'MOWARED')
+    );
+
+    if (!canAccessRoleChannel) {
+      throw forbidden({
+        en: 'You are not allowed to subscribe to this realtime role channel.',
+        ar: 'Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ ØµÙ„Ø§Ø­ÙŠØ© Ø§Ù„Ø§Ø´ØªØ±Ø§Ùƒ ÙÙŠ Ù‚Ù†Ø§Ø© Ø§Ù„Ø¯ÙˆØ± Ø§Ù„ÙÙˆØ±ÙŠØ©.'
+      }, 'REALTIME_ROLE_FORBIDDEN');
     }
 
     return ensurePusher().authorizeChannel(socketId, channelName);

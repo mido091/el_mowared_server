@@ -14,6 +14,7 @@ import TransactionRepository from '../repositories/TransactionRepository.js';
 import { getIO } from '../config/socket.js';
 import { AppError } from '../middlewares/errorHandler.js';
 import CartService from './CartService.js';
+import RealtimeService from './RealtimeService.js';
 
 class OrderService {
   /**
@@ -94,6 +95,39 @@ class OrderService {
       // 7. Cleanup: Clear shopping cart only after successful order splits.
       await CartService.clearCart(userId, connection);
       await connection.commit();
+
+      await Promise.allSettled(
+        createdOrders.map(async (orderId) => {
+          const order = await OrderRepository.findById(orderId);
+          if (!order) return;
+
+          await Promise.allSettled([
+            RealtimeService.emitToUser(order.user_id, 'order.updated', {
+              orderId,
+              status: order.status,
+              revision: Date.now(),
+            }),
+            order.vendor_user_id
+              ? RealtimeService.emitToUser(order.vendor_user_id, 'order.updated', {
+                  orderId,
+                  status: order.status,
+                  revision: Date.now(),
+                })
+              : Promise.resolve(),
+            RealtimeService.emitDashboardMetricsChanged({
+              admin: true,
+              vendorUserIds: order.vendor_user_id ? [order.vendor_user_id] : [],
+              payload: {
+                entity: 'order',
+                orderId,
+                status: order.status,
+                revision: Date.now(),
+              },
+            }),
+          ]);
+        })
+      );
+
       return createdOrders;
     } catch (error) {
       await connection.rollback();
@@ -195,6 +229,23 @@ class OrderService {
           await io.to(order.user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
           await io.to(order.vendor_user_id.toString()).emit('order_update', { orderId, status: 'PROCESSING', message: 'Payment Verified' });
         } catch (e) {}
+
+        await Promise.allSettled([
+          RealtimeService.emitToUser(order.user_id, 'order.updated', { orderId, status: 'PROCESSING', revision: Date.now() }),
+          order.vendor_user_id
+            ? RealtimeService.emitToUser(order.vendor_user_id, 'order.updated', { orderId, status: 'PROCESSING', revision: Date.now() })
+            : Promise.resolve(),
+          RealtimeService.emitDashboardMetricsChanged({
+            admin: true,
+            vendorUserIds: order.vendor_user_id ? [order.vendor_user_id] : [],
+            payload: {
+              entity: 'order',
+              orderId,
+              status: 'PROCESSING',
+              revision: Date.now(),
+            },
+          }),
+        ]);
       } else {
         // 5. Rejection Flow: Inform the user to re-upload the receipt.
         await NotificationService.createSystemNotification(
@@ -269,6 +320,31 @@ class OrderService {
           await io.to(order.vendor_user_id.toString()).emit('order_update', { orderId: order.id, status: newStatus });
         }
       } catch (e) {}
+
+      await Promise.allSettled([
+        RealtimeService.emitToUser(order.user_id, 'order.updated', {
+          orderId: order.id,
+          status: newStatus,
+          revision: Date.now(),
+        }),
+        order.vendor_user_id
+          ? RealtimeService.emitToUser(order.vendor_user_id, 'order.updated', {
+              orderId: order.id,
+              status: newStatus,
+              revision: Date.now(),
+            })
+          : Promise.resolve(),
+        RealtimeService.emitDashboardMetricsChanged({
+          admin: true,
+          vendorUserIds: order.vendor_user_id ? [order.vendor_user_id] : [],
+          payload: {
+            entity: 'order',
+            orderId: order.id,
+            status: newStatus,
+            revision: Date.now(),
+          },
+        }),
+      ]);
     }
 
     return OrderRepository.findById(order.id);

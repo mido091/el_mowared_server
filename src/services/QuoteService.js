@@ -6,6 +6,7 @@
 import QuoteRepository from '../repositories/QuoteRepository.js';
 import ChatService from './ChatService.js';
 import NotificationService from './NotificationService.js';
+import RealtimeService from './RealtimeService.js';
 import { pool } from '../config/db.js';
 import { getIO } from '../config/socket.js';
 
@@ -53,6 +54,11 @@ class QuoteService {
         const [vendorUsers] = await connection.execute('SELECT user_id FROM vendor_profiles WHERE id = ?', [quote.vendor_id]);
         if (vendorUsers.length > 0) {
           await io.to(vendorUsers[0].user_id.toString()).emit('new_quote', { quoteId: quote.id });
+          await RealtimeService.emitToUser(vendorUsers[0].user_id, 'quote.created', {
+            quoteId: quote.id,
+            rfqId: quote.rfq_id || null,
+            revision: Date.now(),
+          });
         }
       } catch (e) {}
 

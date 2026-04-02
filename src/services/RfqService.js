@@ -5,10 +5,52 @@ import { AppError } from '../middlewares/errorHandler.js';
 import { getIO } from '../config/socket.js';
 import DashboardMetricsService from './DashboardMetricsService.js';
 import VendorMetricsService from './VendorMetricsService.js';
+import NotificationService from './NotificationService.js';
+import RealtimeService from './RealtimeService.js';
 import pool from '../config/db.js';
 import { buildRfqTitle, normalizeRfqItems } from '../utils/rfqItems.js';
 
 class RfqService {
+  async _emitRfqEventToUsers(userIds = [], eventName, payload = {}) {
+    const normalizedIds = [...new Set((userIds || []).filter(Boolean))];
+    if (!normalizedIds.length || !eventName) return;
+
+    await Promise.allSettled([
+      RealtimeService.emitToUsers(normalizedIds, eventName, {
+        revision: Date.now(),
+        ...payload,
+      }),
+      eventName !== 'rfq.feed.changed'
+        ? RealtimeService.emitToUsers(normalizedIds, 'rfq.feed.changed', {
+            revision: Date.now(),
+            ...payload,
+          })
+        : Promise.resolve(),
+    ]);
+  }
+
+  async _emitRfqDashboardRefresh({ vendorUserIds = [], ownerUserId = null, admin = false, payload = {} } = {}) {
+    const normalizedVendorUserIds = [...new Set((vendorUserIds || []).filter(Boolean))];
+    const normalizedUserIds = [...new Set([ownerUserId, ...normalizedVendorUserIds].filter(Boolean))];
+
+    await Promise.allSettled([
+      normalizedUserIds.length
+        ? RealtimeService.emitToUsers(normalizedUserIds, 'rfq.updated', {
+            revision: Date.now(),
+            ...payload,
+          })
+        : Promise.resolve(),
+      RealtimeService.emitDashboardMetricsChanged({
+        admin,
+        vendorUserIds: normalizedVendorUserIds,
+        payload: {
+          entity: 'rfq',
+          revision: Date.now(),
+          ...payload,
+        },
+      }),
+    ]);
+  }
   /**
    * Creates a new RFQ natively defaulting to DRAFT or PENDING based on input.
    */
@@ -65,7 +107,6 @@ class RfqService {
           const reviewers = broadcastContext?.vendors || [];
           const rfq = broadcastContext || { rfqId, rfqTitle, vendors: reviewers };
           const io = getIO();
-
           await Promise.allSettled(
             reviewers.map(async (vendor) => {
               await NotificationRepository.create({
@@ -85,6 +126,23 @@ class RfqService {
               });
             })
           );
+
+          await Promise.allSettled([
+            this._emitRfqDashboardRefresh({
+              vendorUserIds: reviewers.map((vendor) => vendor.user_id),
+              ownerUserId: rfqData.user_id,
+              admin: true,
+              payload: {
+                rfqId,
+                status: RFQ_STATUSES.BROADCASTED
+              }
+            }),
+            RealtimeService.emitToRole('admin', 'rfq.created', {
+              rfqId,
+              status: RFQ_STATUSES.BROADCASTED,
+              revision: Date.now()
+            })
+          ]);
         } catch (notifyError) {
           console.warn('RFQ vendor notification failed:', notifyError.message);
         }
@@ -163,6 +221,22 @@ class RfqService {
           });
         });
         await Promise.allSettled(notifyJobs);
+        await Promise.allSettled([
+          this._emitRfqDashboardRefresh({
+            vendorUserIds: vendors.map((vendor) => vendor.user_id),
+            ownerUserId: rfq.user_id,
+            admin: true,
+            payload: {
+              rfqId: rfq.id,
+              status: RFQ_STATUSES.BROADCASTED
+            }
+          }),
+          RealtimeService.emitToRole('admin', 'rfq.created', {
+            rfqId: rfq.id,
+            status: RFQ_STATUSES.BROADCASTED,
+            revision: Date.now()
+          })
+        ]);
       } catch (e) {
          console.warn('Socket emit failed natively:', e.message);
       }
@@ -202,6 +276,22 @@ class RfqService {
 
       await connection.commit();
       DashboardMetricsService.invalidateAdminDashboard();
+
+      await Promise.allSettled([
+        this._emitRfqDashboardRefresh({
+          ownerUserId: rfq.user_id,
+          admin: true,
+          payload: {
+            rfqId: rfq.id,
+            status: RFQ_STATUSES.REJECTED
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId: rfq.id,
+          status: RFQ_STATUSES.REJECTED,
+          revision: Date.now()
+        })
+      ]);
 
       return {
         rfqId: rfq.id,
@@ -271,6 +361,21 @@ class RfqService {
       await connection.commit();
       VendorMetricsService.invalidateVendor(vendorId);
       DashboardMetricsService.invalidateAdminDashboard();
+      await Promise.allSettled([
+        this._emitRfqDashboardRefresh({
+          ownerUserId: rfq.user_id,
+          admin: true,
+          payload: {
+            rfqId,
+            status: rfq.status === RFQ_STATUSES.BROADCASTED ? RFQ_STATUSES.OPEN : rfq.status
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId,
+          status: rfq.status === RFQ_STATUSES.BROADCASTED ? RFQ_STATUSES.OPEN : rfq.status,
+          revision: Date.now()
+        })
+      ]);
       return offerRes.insertId;
     } catch (err) {
       await connection.rollback();
@@ -335,6 +440,22 @@ class RfqService {
       VendorMetricsService.invalidateVendor(vendorId);
       DashboardMetricsService.invalidateAdminDashboard();
 
+      await Promise.allSettled([
+        this._emitRfqDashboardRefresh({
+          ownerUserId: rfq.user_id,
+          admin: true,
+          payload: {
+            rfqId,
+            status: rfq.status
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId,
+          status: rfq.status,
+          revision: Date.now()
+        })
+      ]);
+
       return {
         rfq_id: rfqId,
         vendor_id: vendorId,
@@ -362,9 +483,10 @@ class RfqService {
     try {
       // 1. Get offer details
       const [offerRows] = await connection.execute(
-        `SELECT o.*, r.status as rfq_status, r.user_id as rfq_owner_id 
+        `SELECT o.*, r.status as rfq_status, r.user_id as rfq_owner_id, vp.user_id as vendor_user_id
          FROM rfq_offers o
          JOIN rfq_requests r ON o.rfq_id = r.id
+         JOIN vendor_profiles vp ON vp.id = o.vendor_id
          WHERE o.id = ?`,
         [offerId]
       );
@@ -416,15 +538,45 @@ class RfqService {
 
       // Real-time Notification to the winning vendor
       try {
-        const io = getIO();
-        await io.to(offer.vendor_id.toString()).emit('notification', {
-           message: `Congratulations! Your offer for RFQ #${offer.rfq_id} has been ACCEPTED.`,
-           type: 'success',
-           link: `/dashboard/vendor/rfq-offers`
-        });
+        await NotificationService.createRealtimeNotification(
+          {
+            userId: offer.vendor_user_id,
+            type: 'RFQ_MATCH',
+            titleAr: 'تم قبول عرضك',
+            titleEn: 'Your RFQ offer was accepted',
+            contentAr: `تم قبول عرضك على طلب RFQ رقم ${offer.rfq_id}.`,
+            contentEn: `Your offer for RFQ #${offer.rfq_id} has been accepted.`
+          },
+          {
+            link: '/dashboard/vendor/rfq-offers',
+            toastType: 'success',
+            eventName: 'rfq_feed_updated',
+            eventPayload: {
+              rfqId: offer.rfq_id,
+              status: RFQ_STATUSES.COMPLETED
+            }
+          }
+        );
       } catch (e) {
          console.warn('Notification failed explicitly:', e.message);
       }
+
+      await Promise.allSettled([
+        this._emitRfqDashboardRefresh({
+          vendorUserIds: offer.vendor_user_id ? [offer.vendor_user_id] : [],
+          ownerUserId: offer.rfq_owner_id,
+          admin: true,
+          payload: {
+            rfqId: offer.rfq_id,
+            status: RFQ_STATUSES.COMPLETED
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId: offer.rfq_id,
+          status: RFQ_STATUSES.COMPLETED,
+          revision: Date.now()
+        })
+      ]);
 
       return {
         ...offer,
@@ -510,6 +662,21 @@ class RfqService {
 
       await connection.commit();
       DashboardMetricsService.invalidateAdminDashboard();
+      await Promise.allSettled([
+        this._emitRfqDashboardRefresh({
+          ownerUserId: userId,
+          admin: true,
+          payload: {
+            rfqId,
+            status: 'DELETED'
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId,
+          status: 'DELETED',
+          revision: Date.now()
+        })
+      ]);
       return { rfqId, deleted: true };
     } catch (err) {
       await connection.rollback();
