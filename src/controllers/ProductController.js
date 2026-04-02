@@ -77,6 +77,7 @@ class ProductController {
     this.getModerationList = this.getModerationList.bind(this);
     this.compare = this.compare.bind(this);
     this.delete = this.delete.bind(this);
+    this.deleteAdmin = this.deleteAdmin.bind(this);
     this.bulkDelete = this.bulkDelete.bind(this);
   }
 
@@ -436,6 +437,15 @@ class ProductController {
   async delete(req, res, next) {
     try {
       await ProductService.deleteProduct(req.params.id, req.user.vendorProfile.id);
+      res.status(204).json({ status: 'success', data: null });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteAdmin(req, res, next) {
+    try {
+      await ProductService.deleteProductAsAdmin(req.params.id, req.user.id);
       res.status(204).json({ status: 'success', data: null });
     } catch (error) {
       next(error);

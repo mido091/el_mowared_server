@@ -528,6 +528,29 @@ class ChatRepository {
     return true;
   }
 
+  async deleteConversationsPermanently(conversationIds = [], connection = pool) {
+    const normalizedIds = [...new Set(
+      (Array.isArray(conversationIds) ? conversationIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )];
+
+    if (!normalizedIds.length) {
+      return 0;
+    }
+
+    const placeholders = normalizedIds.map(() => '?').join(', ');
+    await connection.execute(
+      `DELETE FROM messages WHERE conversation_id IN (${placeholders})`,
+      normalizedIds
+    );
+    await connection.execute(
+      `DELETE FROM conversations WHERE id IN (${placeholders})`,
+      normalizedIds
+    );
+    return normalizedIds.length;
+  }
+
   async autoCleanupArchivedChats() {
     const columns = await this._getColumns('conversations');
     if (!columns.has('chat_status') || !columns.has('archived_at')) {

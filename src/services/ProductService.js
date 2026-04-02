@@ -482,6 +482,40 @@ class ProductService {
     return result;
   }
 
+  async deleteProductAsAdmin(id, adminUserId = null) {
+    const product = await ProductRepository.findById(id, { includeDeleted: true });
+    if (!product || product.deleted_at) {
+      throw new AppError('Product not found', 404);
+    }
+
+    const effectiveStatus = this._effectiveStatus(product);
+    if (effectiveStatus !== 'REJECTED') {
+      throw new AppError('Only rejected products can be deleted by admin.', 400);
+    }
+
+    await ProductRepository.logStatusChange({
+      productId: id,
+      oldStatus: effectiveStatus,
+      newStatus: 'DELETED',
+      changedBy: adminUserId,
+      note: 'Soft deleted by admin after rejection'
+    });
+
+    const result = await ProductRepository.softDelete(id);
+    MetricsCacheService.invalidate('public:marketplace-summary');
+    MetricsCacheService.invalidate('public:vendors');
+    const vendorUserId = await this.getVendorUserId(product.vendor_id);
+    await this._emitProductRealtime('product.deleted', {
+      productId: id,
+      lifecycleStatus: 'DELETED',
+    }, {
+      vendorUserId,
+      admin: true,
+      marketplace: true,
+    });
+    return result;
+  }
+
   async bulkDeleteProducts(ids, vendorId) {
     if (!ids || ids.length === 0) return;
     const result = await ProductRepository.bulkSoftDelete(ids, vendorId);

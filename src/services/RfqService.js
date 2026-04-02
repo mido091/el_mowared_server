@@ -128,6 +128,14 @@ class RfqService {
           );
 
           await Promise.allSettled([
+            this._emitRfqEventToUsers(
+              reviewers.map((vendor) => vendor.user_id),
+              'rfq.created',
+              {
+                rfqId,
+                status: RFQ_STATUSES.BROADCASTED
+              }
+            ),
             this._emitRfqDashboardRefresh({
               vendorUserIds: reviewers.map((vendor) => vendor.user_id),
               ownerUserId: rfqData.user_id,
@@ -215,7 +223,8 @@ class RfqService {
           }, connection);
 
           await io.to(vendor.user_id.toString()).emit('new_rfq', {
-            message: `New Lead: ${rfq.title} matches your categories.`,
+            messageAr: `يوجد طلب RFQ جديد بعنوان "${rfq.title}" متاح الآن في مركز الفرص.`,
+            messageEn: `New Lead: ${rfq.title} matches your categories.`,
             rfq_id: rfq.id,
             type: 'success'
           });
@@ -637,6 +646,8 @@ class RfqService {
       if (!rfq) {
         throw new AppError('RFQ not found.', 404);
       }
+      const matchingVendors = await RfqRepository.getMatchingVendors(rfq.category_id, connection);
+      const vendorUserIds = matchingVendors.map((vendor) => vendor.user_id).filter(Boolean);
 
       const blockedStatuses = [
         RFQ_STATUSES.ACCEPTED,
@@ -663,7 +674,12 @@ class RfqService {
       await connection.commit();
       DashboardMetricsService.invalidateAdminDashboard();
       await Promise.allSettled([
+        this._emitRfqEventToUsers(vendorUserIds, 'rfq.updated', {
+          rfqId,
+          status: 'DELETED'
+        }),
         this._emitRfqDashboardRefresh({
+          vendorUserIds,
           ownerUserId: userId,
           admin: true,
           payload: {
@@ -678,6 +694,76 @@ class RfqService {
         })
       ]);
       return { rfqId, deleted: true };
+    } catch (err) {
+      await connection.rollback();
+      throw err;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async completeRfq(rfqId, userId) {
+    await RfqRepository.initializeRuntimeSchema(pool);
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      const rfq = await RfqRepository.getByIdForUser(rfqId, userId, connection);
+      if (!rfq) {
+        throw new AppError('RFQ not found.', 404);
+      }
+
+      if (rfq.status === RFQ_STATUSES.COMPLETED) {
+        throw new AppError('This RFQ is already completed.', 400);
+      }
+
+      const terminalStatuses = [RFQ_STATUSES.CANCELED, RFQ_STATUSES.EXPIRED, RFQ_STATUSES.REJECTED];
+      if (terminalStatuses.includes(rfq.status)) {
+        throw new AppError('This RFQ cannot be marked as completed.', 400);
+      }
+
+      validateTransition(rfq.status, RFQ_STATUSES.COMPLETED);
+
+      const matchingVendors = await RfqRepository.getMatchingVendors(rfq.category_id, connection);
+      const vendorUserIds = matchingVendors.map((vendor) => vendor.user_id).filter(Boolean);
+
+      await RfqRepository.updateStatus(
+        rfqId,
+        rfq.status,
+        RFQ_STATUSES.COMPLETED,
+        userId,
+        'Buyer marked the RFQ as completed',
+        connection
+      );
+
+      await connection.commit();
+      DashboardMetricsService.invalidateAdminDashboard();
+
+      await Promise.allSettled([
+        this._emitRfqEventToUsers(vendorUserIds, 'rfq.updated', {
+          rfqId,
+          status: RFQ_STATUSES.COMPLETED
+        }),
+        this._emitRfqDashboardRefresh({
+          vendorUserIds,
+          ownerUserId: userId,
+          admin: true,
+          payload: {
+            rfqId,
+            status: RFQ_STATUSES.COMPLETED
+          }
+        }),
+        RealtimeService.emitToRole('admin', 'rfq.updated', {
+          rfqId,
+          status: RFQ_STATUSES.COMPLETED,
+          revision: Date.now()
+        })
+      ]);
+
+      return {
+        rfqId,
+        status: RFQ_STATUSES.COMPLETED
+      };
     } catch (err) {
       await connection.rollback();
       throw err;

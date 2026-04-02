@@ -53,6 +53,7 @@ router.post(
   RfqController.create
 );
 router.delete('/:id', authorize('USER'), validate({ params: rfqSchemas.idParam }), RfqController.delete);
+router.patch('/:id/complete', authorize('USER'), validate({ params: rfqSchemas.idParam }), inquiryLimiter, RfqController.complete);
 router.patch('/offers/:offerId/accept', authorize('USER'), validate({ params: rfqSchemas.offerIdParam }), inquiryLimiter, RfqController.acceptOffer);
 
 export default router;

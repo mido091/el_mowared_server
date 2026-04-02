@@ -207,6 +207,10 @@ const LEGACY_MESSAGE_MAP = {
     en: 'Please verify your email address before signing in.',
     ar: 'يرجى تأكيد بريدك الإلكتروني قبل تسجيل الدخول.'
   },
+  'Your account is inactive. Please contact site administration to learn the reason for suspension.': {
+    en: 'Your account is inactive. Please contact site administration to learn the reason for suspension.',
+    ar: 'حسابك غير مفعل. يرجى التواصل مع إدارة الموقع لمعرفة سبب الإيقاف.'
+  },
   'No account found with this email': {
     en: 'No account was found with this email address.',
     ar: 'لا يوجد حساب مرتبط بهذا البريد الإلكتروني.'

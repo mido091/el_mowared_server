@@ -30,6 +30,7 @@ router.get('/support-conversations', authorize('OWNER'), ChatController.getOwner
 router.get('/support-conversations/:id/messages', authorize('OWNER'), ChatController.getOwnerSupportConversationMessages);
 router.get('/support-archives', authorize('OWNER'), ChatController.getOwnerSupportArchives);
 router.patch('/support-archives/:id/archive', authorize('OWNER'), ChatController.archiveSupportConversation);
+router.delete('/support-archives', authorize('OWNER'), ChatController.deleteOwnerSupportConversations);
 router.delete('/support-archives/:id', authorize('OWNER'), ChatController.deleteSupportConversation);
 
 // ── Product Moderation ──────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ router.get('/products/:id', authorize('OWNER', 'ADMIN'), validate({ params: prod
 router.patch('/products/:id/review', authorize('OWNER', 'ADMIN'), validate({ params: productSchemas.idParam }), ProductController.review);
 router.put('/products/:id/review', authorize('OWNER', 'ADMIN'), validate({ params: productSchemas.idParam }), ProductController.review);
 router.put('/products/:id/status', authorize('OWNER', 'ADMIN'), validate({ params: productSchemas.idParam }), ProductController.updateStatus);
+router.delete('/products/:id', authorize('OWNER', 'ADMIN'), validate({ params: productSchemas.idParam }), ProductController.deleteAdmin);
 
 router.get('/reviews', authorize('OWNER', 'ADMIN'), validate({ query: reviewSchemas.adminQuery }), AdminReviewController.getAllReviews);
 router.patch('/reviews/:type/:id/approve', authorize('OWNER', 'ADMIN'), validate({ params: reviewSchemas.adminParams }), AdminReviewController.approveReview);

@@ -24,6 +24,14 @@ class NotificationService {
     return NotificationRepository.markAllAsRead(userId);
   }
 
+  async deleteNotification(id, userId) {
+    return NotificationRepository.deleteById(id, userId);
+  }
+
+  async deleteAllNotifications(userId) {
+    return NotificationRepository.deleteAllByUserId(userId);
+  }
+
   async getUnreadCount(userId) {
     return NotificationRepository.getUnreadCount(userId);
   }

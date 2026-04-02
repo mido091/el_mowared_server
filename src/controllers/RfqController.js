@@ -250,6 +250,16 @@ class RfqController {
       next(error);
     }
   }
+
+  complete = async (req, res, next) => {
+    try {
+      const rfqId = Number(req.params.id);
+      const result = await RfqService.completeRfq(rfqId, req.user.id);
+      this._respond(res, 200, result, 'RFQ marked as completed successfully.');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new RfqController();

@@ -64,6 +64,18 @@ class NotificationRepository {
     await pool.execute(sql, { userId });
   }
 
+  async deleteById(id, userId) {
+    const sql = 'DELETE FROM notifications WHERE id = :id AND user_id = :userId';
+    const [result] = await pool.execute(sql, { id, userId });
+    return result.affectedRows > 0;
+  }
+
+  async deleteAllByUserId(userId) {
+    const sql = 'DELETE FROM notifications WHERE user_id = :userId';
+    const [result] = await pool.execute(sql, { userId });
+    return result.affectedRows;
+  }
+
   /**
    * Counts total unread notifications for a user badge count.
    * 

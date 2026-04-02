@@ -150,7 +150,7 @@ class RfqRepository {
        LEFT JOIN rfq_offers ro
          ON ro.rfq_id = r.id AND ro.vendor_id = :vendorId
        WHERE r.id = :id
-         AND r.status IN ('BROADCASTED', 'OPEN', 'NEGOTIATING', 'OFFERED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELED', 'COMPLETED')
+         AND r.status IN ('BROADCASTED', 'OPEN', 'NEGOTIATING', 'OFFERED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELED')
          AND (
            ${publicCategoryCondition}
            OR (r.privacy_type = 'PRIVATE' AND pv.vendor_id IS NOT NULL)
@@ -302,7 +302,7 @@ class RfqRepository {
        LEFT JOIN rfq_private_vendors pv ON r.id = pv.rfq_id AND pv.vendor_id = ?
        LEFT JOIN categories c ON c.id = r.category_id
        LEFT JOIN users u ON u.id = r.user_id
-      WHERE r.status IN ('BROADCASTED', 'OPEN', 'NEGOTIATING', 'OFFERED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELED', 'COMPLETED')
+      WHERE r.status IN ('BROADCASTED', 'OPEN', 'NEGOTIATING', 'OFFERED', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'CANCELED')
       AND (
           (r.privacy_type = 'PUBLIC' AND r.category_id IN (${publicCategoryPlaceholders}))
           OR

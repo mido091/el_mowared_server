@@ -60,6 +60,30 @@ class NotificationController {
       next(error);
     }
   }
+
+  async deleteOne(req, res, next) {
+    try {
+      await NotificationService.deleteNotification(req.params.id, req.user.id);
+      res.status(200).json({
+        status: 'success',
+        message: 'Notification deleted'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteAll(req, res, next) {
+    try {
+      await NotificationService.deleteAllNotifications(req.user.id);
+      res.status(200).json({
+        status: 'success',
+        message: 'All notifications deleted'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new NotificationController();

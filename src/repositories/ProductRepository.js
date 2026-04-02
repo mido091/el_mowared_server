@@ -470,6 +470,7 @@ class ProductRepository {
       LEFT JOIN vendor_stats vs ON p.vendor_id = vs.vendor_id
       LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
       WHERE 1 = 1
+        AND p.deleted_at IS NULL
     `;
     const params = {};
     if (lifecycleStatus && lifecycleStatus !== 'ALL') {
@@ -485,7 +486,8 @@ class ProductRepository {
        LEFT JOIN categories c ON p.category_id = c.id
        LEFT JOIN vendor_profiles vp ON p.vendor_id = vp.id
        LEFT JOIN users u ON vp.user_id = u.id
-       WHERE 1 = 1${lifecycleStatus && lifecycleStatus !== 'ALL' ? ` AND ${statusSql.filterWhere}` : ''}`,
+       WHERE 1 = 1
+         AND p.deleted_at IS NULL${lifecycleStatus && lifecycleStatus !== 'ALL' ? ` AND ${statusSql.filterWhere}` : ''}`,
       lifecycleStatus && lifecycleStatus !== 'ALL' ? { lifecycleStatus } : {}
     );
     return { products: rows, total: countResult[0]?.total || 0 };

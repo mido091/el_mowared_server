@@ -169,6 +169,7 @@ class AuthService {
         const status = profile[0]?.verification_status;
         if (status === 'PENDING') throw new AppError('Your account is pending approval. Please wait 24 hours.', 403);
         if (status === 'REJECTED') throw new AppError('Your account application was rejected. You may register again with new details.', 403);
+        throw new AppError('Your account is inactive. Please contact site administration to learn the reason for suspension.', 403, 'ACCOUNT_INACTIVE');
       }
 
       throw new AppError('Please verify your email address before logging in.', 403);

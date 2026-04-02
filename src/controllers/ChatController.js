@@ -351,6 +351,18 @@ class ChatController {
       next(error);
     }
   }
+
+  deleteOwnerSupportConversations = async (req, res, next) => {
+    try {
+      const scope = ['all', 'expiring', 'archived'].includes(`${req.query.scope || 'all'}`.toLowerCase())
+        ? `${req.query.scope || 'all'}`.toLowerCase()
+        : 'all';
+      const result = await ChatService.deleteOwnerSupportConversations(scope);
+      this._respond(res, 200, result, 'Support conversations deleted permanently.');
+    } catch (error) {
+      next(error);
+    }
+  }
 }
 
 export default new ChatController();

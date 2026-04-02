@@ -12,10 +12,42 @@ import pool from '../config/db.js';
 import { getIO, getOnlineUserIds, isUserOnline } from '../config/socket.js';
 import { sendSimpleEmail } from './emailService.js';
 import { AppError } from '../middlewares/errorHandler.js';
+import RealtimeService from './RealtimeService.js';
 
 const supportPoolNotificationTimestamps = new Map();
 
 class ChatService {
+  async _resolveVendorUserId(vendorId, connection = pool) {
+    if (!vendorId) return null;
+    const [rows] = await connection.execute(
+      'SELECT user_id FROM vendor_profiles WHERE id = ? LIMIT 1',
+      [vendorId]
+    );
+    return rows[0]?.user_id ? Number(rows[0].user_id) : null;
+  }
+
+  async _emitRfqConversationRefresh({ rfqId = null, vendorId = null, buyerUserId = null, status = '' } = {}, connection = pool) {
+    const normalizedRfqId = Number(rfqId || 0);
+    if (!normalizedRfqId) return;
+
+    const vendorUserId = await this._resolveVendorUserId(vendorId, connection);
+    const audience = [...new Set([buyerUserId, vendorUserId].filter(Boolean))];
+    if (!audience.length) return;
+
+    await Promise.allSettled([
+      RealtimeService.emitToUsers(audience, 'rfq.feed.changed', {
+        rfqId: normalizedRfqId,
+        status,
+        revision: Date.now()
+      }),
+      RealtimeService.emitToUsers(audience, 'rfq.updated', {
+        rfqId: normalizedRfqId,
+        status,
+        revision: Date.now()
+      })
+    ]);
+  }
+
   async _resolveConversationAudience(conversation, connection = pool) {
     const audience = new Set();
     if (conversation?.id) {
@@ -95,6 +127,24 @@ class ChatService {
     return isArabic
       ? 'المورد غير متصل الآن. أرسل استفسارك وسيتم الرد عليك في أقرب وقت.'
       : 'The supplier is currently offline. Send your inquiry and they will reply as soon as possible.';
+  }
+
+  _getConversationStarterPhoneText(locale = 'en', name = '', phone = '') {
+    const normalizedPhone = `${phone || ''}`.trim();
+    if (!normalizedPhone) return '';
+
+    const normalizedName = `${name || ''}`.trim();
+    const isArabic = `${locale}`.toLowerCase().startsWith('ar');
+
+    if (isArabic) {
+      return normalizedName
+        ? `رقم هاتف صاحب بدء المحادثة (${normalizedName}): ${normalizedPhone}`
+        : `رقم هاتف صاحب بدء المحادثة: ${normalizedPhone}`;
+    }
+
+    return normalizedName
+      ? `Conversation starter phone number (${normalizedName}): ${normalizedPhone}`
+      : `Conversation starter phone number: ${normalizedPhone}`;
   }
 
   _estimateResponseMinutes(queueLength, onlineAgentsCount = 1) {
@@ -447,6 +497,22 @@ class ChatService {
       await ChatRepository.updateLastMessage(conversation.id, messageText, connection);
 
       let systemMessage = null;
+      let starterPhoneMessage = '';
+      let starterPhoneValue = null;
+      if (normalizedType === 'INQUIRY' && createdNow && vendorId) {
+        const initiator = await UserRepository.findById(userId, connection);
+        const initiatorName = [initiator?.first_name, initiator?.last_name]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        starterPhoneValue = `${initiator?.phone || ''}`.trim() || null;
+        starterPhoneMessage = this._getConversationStarterPhoneText(
+          locale,
+          initiatorName,
+          starterPhoneValue
+        );
+      }
+
       if (normalizedType === 'SUPPORT' && createdNow) {
         const hasAvailableAgent = !!supportPoolState?.hasAnyOnlineAgent;
         const supportTexts = this._getLocalizedSupportTexts(locale, hasAvailableAgent);
@@ -468,15 +534,31 @@ class ChatService {
           [vendorId]
         );
         const vendorUserId = vendorRows[0]?.user_id ? Number(vendorRows[0].user_id) : null;
+        const offlineNotice = this._getLocalizedVendorAvailabilityText(locale);
         if (!vendorUserId || !(await isUserOnline(vendorUserId))) {
           systemMessage = await ChatRepository.createMessage({
             conversationId: conversation.id,
             senderId: userId,
-            messageText: this._getLocalizedVendorAvailabilityText(locale),
+            messageText: starterPhoneMessage
+              ? `${offlineNotice} ${starterPhoneMessage}`
+              : offlineNotice,
             type: 'SYSTEM',
             attachments: [],
             metadata: {
-              vendorAvailability: 'offline'
+              vendorAvailability: 'offline',
+              initiatorPhone: starterPhoneValue
+            }
+          }, connection);
+        } else if (starterPhoneMessage) {
+          systemMessage = await ChatRepository.createMessage({
+            conversationId: conversation.id,
+            senderId: userId,
+            messageText: starterPhoneMessage,
+            type: 'SYSTEM',
+            attachments: [],
+            metadata: {
+              vendorAvailability: 'online',
+              initiatorPhone: starterPhoneValue
             }
           }, connection);
         }
@@ -536,6 +618,15 @@ class ChatService {
           userId,
           status: conversation.status
         }, [`${conversation.admin_id}`]);
+      }
+
+      if (conversation.related_rfq_id || options.relatedRfqId) {
+        await this._emitRfqConversationRefresh({
+          rfqId: conversation.related_rfq_id || options.relatedRfqId,
+          vendorId: conversation.vendor_id || vendorId,
+          buyerUserId: conversation.user_id || conversationUserId,
+          status: conversation.status || 'active'
+        }, passedConnection || pool);
       }
 
       return {
@@ -680,6 +771,15 @@ class ChatService {
         }, connection);
       }
 
+      if (conversation.related_rfq_id) {
+        await this._emitRfqConversationRefresh({
+          rfqId: conversation.related_rfq_id,
+          vendorId: conversation.vendor_id,
+          buyerUserId: conversation.user_id,
+          status: updates.status || conversation.status || 'active'
+        }, passedConnection || pool);
+      }
+
       return newMessage;
     } catch (error) {
       if (isInternalTransaction) {
@@ -760,6 +860,15 @@ class ChatService {
         admin_id: updates.admin_id || conversation.admin_id,
         status: normalizedStatus
       });
+
+      if (conversation.related_rfq_id) {
+        await this._emitRfqConversationRefresh({
+          rfqId: conversation.related_rfq_id,
+          vendorId: conversation.vendor_id,
+          buyerUserId: conversation.user_id,
+          status: normalizedStatus
+        }, passedConnection || pool);
+      }
 
       return ChatRepository.findById(conversationId, passedConnection || pool);
     } catch (error) {
@@ -940,6 +1049,57 @@ class ChatService {
     }
 
     return true;
+  }
+
+  async deleteOwnerSupportConversations(scope = 'all') {
+    const connection = await pool.getConnection();
+
+    try {
+      await connection.beginTransaction();
+
+      const conversations = await ChatRepository.getOwnerSupportConversations(scope, connection);
+      const ids = conversations.map((conversation) => Number(conversation.id)).filter(Boolean);
+
+      if (!ids.length) {
+        await connection.commit();
+        return { deletedCount: 0, ids: [] };
+      }
+
+      await ChatRepository.deleteConversationsPermanently(ids, connection);
+      await connection.commit();
+
+      try {
+        const io = getIO();
+        await Promise.allSettled(ids.map((conversationId) =>
+          io.to(`conv_${conversationId}`).emit('conversation_deleted', { conversationId })
+        ));
+
+        const affectedUserIds = [...new Set(
+          conversations.flatMap((conversation) => [
+            Number(conversation.user_id) || null,
+            Number(conversation.admin_id) || null,
+            Number(conversation.vendor_user_id) || null,
+          ]).filter(Boolean)
+        )];
+
+        await Promise.allSettled(affectedUserIds.map((userId) =>
+          io.to(`${userId}`).emit('conversation_deleted', {
+            bulk: true,
+            ids,
+            revision: Date.now()
+          })
+        ));
+      } catch {
+        // Ignore socket availability issues.
+      }
+
+      return { deletedCount: ids.length, ids };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 }
 
